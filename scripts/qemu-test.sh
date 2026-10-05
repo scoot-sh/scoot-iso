@@ -184,6 +184,10 @@ wait_ga() {
     echo "=== failed units ==="; systemctl --failed --no-pager || true
     echo "=== modules-load ==="; systemctl status systemd-modules-load --no-pager || true
     echo "=== journal errors ==="; journalctl -b -p err --no-pager | head -30 || true
+    echo "=== firefox: nixos home ==="; ls -ladn /home/nixos; ls -la /home/nixos/ | head -20
+    echo "=== firefox: mozilla dir ==="; ls -la /home/nixos/.mozilla/ 2>&1 || true
+    echo "=== firefox: process env ==="; for pid in $(pgrep -f "firefox.*scoot-welcome"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
+    echo "=== firefox: passwd ==="; getent passwd nixos
   ' || echo "SSH dump failed"
   echo "--- TEMP DEBUG: qga transport experiment ---"
   python3 - "$GASOCK" <<'EOF' || echo "transport experiment failed"
