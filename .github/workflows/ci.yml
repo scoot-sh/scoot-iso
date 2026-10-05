@@ -30,7 +30,7 @@ jobs:
       - name: patched package check (proves the source keeps the expected layout)
         run: |
           nix build .#packages.x86_64-linux.calamares-nixos-scoot --print-build-logs
-      - name: render check (installer writer matrix: looks x home/system x user presence)
+      - name: "render check (installer writer matrix)"
         run: |
           sudo python3 tests/render_check.py result/src/modules/nixos/main.py iso/target
 
