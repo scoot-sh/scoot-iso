@@ -1,0 +1,120 @@
+name: ci
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "iso/welcome/**"
+  pull_request:
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+      - "iso/welcome/**"
+  workflow_dispatch:
+    inputs:
+      qemu:
+        description: "Run the full QEMU install test (needs a KVM self-hosted runner)"
+        type: boolean
+        default: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - name: flake check (patch-consistency + module eval)
+        run: nix flake check --print-build-logs
+      - name: render check (patch applies to the pinned sources)
+        run: |
+          nix build .#checks.x86_64-linux.patch-consistency --print-build-logs
+
+  build-iso:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - name: build ISO (x86_64-linux)
+        run: nix build .#iso.x86_64-linux --print-build-logs -o result-iso
+      - name: measure + stage release files
+        id: size
+        run: |
+          iso=$(echo result-iso/iso/*.iso)
+          bytes=$(stat -c%s "$iso")
+          echo "iso=$iso" >> "$GITHUB_OUTPUT"
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          echo "## ISO size" >> "$GITHUB_STEP_SUMMARY"
+          echo "$iso: $bytes bytes ($(numfmt --to=iec "$bytes"))" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$bytes" -ge 2147483648 ]; then
+            echo "OVER 2 GB: GitHub release assets cap at 2 GB; see README (hosting)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoot-iso-x86_64-linux
+          path: result-iso/iso/*.iso
+          retention-days: 14
+
+  # Full QEMU install test: boots the ISO, installs offline with the
+  # GUI-identical files, reboots into ReGreet, checks the session.
+  # Needs KVM: GitHub-hosted runners have none, so this runs only on a
+  # self-hosted KVM runner via workflow_dispatch (or a repo label).
+  # aarch64 builds run on the Asahi box the same way (never on PR CI).
+  qemu-test:
+    needs: build-iso
+    if: github.event_name == 'workflow_dispatch' && inputs.qemu
+    runs-on: [self-hosted, linux, kvm]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - name: build ISO + target files
+        run: |
+          nix build .#iso.x86_64-linux -o result-iso
+          nix build '.#packages.x86_64-linux.target-flake' -o result-target-flake
+          nix build '.#packages.x86_64-linux.target-configuration' -o result-target-config
+      - name: run QEMU test
+        run: |
+          sudo apt-get update -y -q
+          sudo apt-get install -y -q qemu-system-x86 ovmf qemu-utils
+          scripts/qemu-test.sh \
+            --iso result-iso/iso/*.iso \
+            --target-flake "$(readlink -f result-target-flake)" \
+            --target-config "$(readlink -f result-target-config)" \
+            --workdir /tmp/scoot-iso-qemu \
+            --user kish --password testpass123
+      - name: upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoot-iso-qemu
+          path: /tmp/scoot-iso-qemu/*.ppm
+          retention-days: 14
+
+  release:
+    needs: build-iso
+    if: startsWith(github.ref, 'refs/tags/iso-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - name: build ISO
+        run: nix build .#iso.x86_64-linux -o result-iso
+      - name: attach or redirect (2 GB release-asset cap)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          iso=$(echo result-iso/iso/*.iso)
+          bytes=$(stat -c%s "$iso")
+          if [ "$bytes" -ge 2147483648 ]; then
+            echo "ISO is $(numfmt --to=iec "$bytes"), over GitHub's 2 GB release-asset cap."
+            echo "See README (hosting): publish the ISO out of band and attach checksums here."
+            sha256sum "$iso" > SHA256SUMS
+            gh release upload "${GITHUB_REF#refs/tags/}" SHA256SUMS --clobber
+          else
+            gh release upload "${GITHUB_REF#refs/tags/}" "$iso" --clobber
+          fi
