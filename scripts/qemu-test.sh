@@ -149,6 +149,24 @@ wait_ga() {
     echo "=== modules-load ==="; systemctl status systemd-modules-load --no-pager || true
     echo "=== journal errors ==="; journalctl -b -p err --no-pager | head -30 || true
   ' || echo "SSH dump failed"
+  echo "--- TEMP DEBUG: agent journal via SSH ---"
+  sshpass -p debug123 ssh -p 10022 -o StrictHostKeyChecking=no nixos@localhost 'journalctl -u qemu-guest-agent --no-pager | tail -20' || echo "agent journal failed"
+  echo "--- TEMP DEBUG: host-direct qga ping over the chardev socket ---"
+  python3 - "$GASOCK" <<'EOF' || echo "host-direct ping script failed"
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(10)
+try:
+    s.connect(sys.argv[1])
+except OSError as e:
+    print(f"chardev socket connect failed: {e}")
+    sys.exit(0)
+f = s.makefile("rwb")
+f.write(json.dumps({"execute": "guest-sync-delimited", "arguments": {"id": 1}}).encode() + b"\n"); f.flush()
+print("sync reply:", f.readline().decode(errors="replace").strip()[:200])
+f.write(json.dumps({"execute": "guest-ping"}).encode() + b"\n"); f.flush()
+print("ping reply:", f.readline().decode(errors="replace").strip()[:200])
+EOF
   return 1
 }
 

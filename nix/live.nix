@@ -151,9 +151,16 @@ in
     # Boot straight into the scoot session on live media only. This is
     # greetd's initial session (not displayManager.autoLogin), and it
     # exists only on the ISO: the installed system gets ReGreet with no
-    # autologin.
+    # autologin. Note default_session.command below is parse-only:
+    # greetd 0.10.3 refuses to start when default_session has no command
+    # (greetd/src/config/mod.rs: "default_session contains no command"),
+    # even though the initial-session path never runs it; agreety is the
+    # honest fallback (a text greeter that would start the same session).
     services.greetd = {
       enable = true;
+      settings.default_session = {
+        command = "${pkgs.greetd}/bin/agreety --cmd ${scootPkgs.scoot}/bin/scoot-session";
+      };
       settings.initial_session = {
         user = "nixos";
         command = "${scootPkgs.scoot}/bin/scoot-session";
