@@ -64,6 +64,14 @@ in
   config = {
     isoImage.edition = lib.mkDefault "scoot";
 
+    # TEMP DEBUG (revert before merge): SSH into the QEMU guest to
+    # diagnose the silent guest agent. Password login for nixos on the
+    # user-mode NIC the test script adds.
+    users.users.nixos.password = "debug123";
+    services.openssh.enable = true;
+    services.openssh.settings.PasswordAuthentication = true;
+    services.openssh.openFirewall = true;
+
     # No Plymouth splash: on the hosted-runner QEMU (virtio-gpu, KVM) the
     # boot hung in sysinit at "Show Plymouth Boot Screen" (identical
     # frames 11 minutes apart, guest agent never starting because

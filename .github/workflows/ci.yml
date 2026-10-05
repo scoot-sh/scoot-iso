@@ -106,7 +106,7 @@ jobs:
       - name: run QEMU test
         run: |
           sudo apt-get update -y -q
-          sudo apt-get install -y -q qemu-system-x86 ovmf qemu-utils
+          sudo apt-get install -y -q qemu-system-x86 ovmf qemu-utils sshpass # TEMP DEBUG: sshpass for the SSH dump
           iso=$(find result-iso -name '*.iso' | head -1)
           echo "testing ISO: $iso ($(stat -c%s "$iso") bytes)"
           scripts/qemu-test.sh \
