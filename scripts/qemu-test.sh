@@ -428,10 +428,16 @@ overrides=\$(cat /tmp/iso-override-flags)
 echo \"overrides: \$overrides\"
 ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 ip -o link show
+echo '--- pre-install: repo readable as root (dubious-ownership probe)? ---'
+git -C /mnt/home/$TEST_USER/nixos-config status --short || true
+git config --global --add safe.directory /mnt/home/$TEST_USER/nixos-config
+git -C /mnt/home/$TEST_USER/nixos-config status --short && echo GIT-ROOT-OK
+ls -la /mnt/home/$TEST_USER/nixos-config/ /mnt/etc/nixos
 unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --option build-dir /nix/var/nix/builds \$overrides' > /tmp/install.log 2>&1
 rc=\$?
 echo INSTALL-RC:\$rc
-tail -5 /tmp/install.log
+tail -40 /tmp/install.log
+ls -la /mnt/home/$TEST_USER/nixos-config/ /mnt/etc/nixos
 exit \$rc
 "
 guest_exec "nixos-enter --root /mnt -c \"echo '$TEST_USER:$TEST_PASS' | chpasswd\" && echo PASSWD-OK"
