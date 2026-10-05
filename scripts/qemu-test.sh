@@ -117,11 +117,22 @@ EOF
 }
 
 wait_ga() {
-  for _ in $(seq 1 90); do
+  local n=0
+  for _ in $(seq 1 150); do
+    n=$((n + 1))
     if qmp guest-ping '{}' 2>/dev/null | grep -q '"return"'; then return 0; fi
+    if [ $((n % 12)) -eq 0 ]; then echo "still waiting for guest agent (${n}x5s)..."; qmp query-status '{}' 2>/dev/null || echo "QMP unreachable"; fi
     sleep 5
   done
   echo "guest agent never came up" >&2
+  echo "--- QMP status at failure ---"
+  qmp query-status '{}' 2>/dev/null || echo "QMP unreachable"
+  echo "--- failure screendump ---"
+  qmp screendump "{\"filename\": \"$WORKDIR/boot-failure.ppm\"}" >/dev/null 2>&1 || echo "screendump failed"
+  echo "--- serial tail ---"
+  tail -30 "$WORKDIR"/serial-*.log 2>/dev/null || echo "no serial log"
+  echo "--- qemu process ---"
+  pgrep -af "qemu-system" || echo "no qemu process"
   return 1
 }
 
@@ -139,11 +150,20 @@ start_vm() {
     -drive file="$DISK",if=virtio,format=qcow2 \
     ${extra[@]} \
     -device virtio-gpu-pci -display none \
+    -serial file:"$WORKDIR/serial-$boot.log" \
     -chardev socket,path="$GASOCK",server=on,wait=off,id=qga0 \
     -device virtio-serial-pci \
     -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
     -qmp unix:path="$QMP",server=on,wait=off \
     -daemonize -pidfile "$WORKDIR/qemu.pid"
+  sleep 3
+  if ! kill -0 "$(cat "$WORKDIR/qemu.pid")" 2>/dev/null; then
+    echo "qemu died right after start (KVM unusable? OVMF/ISO path wrong?)" >&2
+    return 1
+  fi
+  echo "--- QMP status after start ---"
+  qmp query-status '{}' || echo "QMP unreachable right after start"
+  qmp query-kvm '{}' || echo "no query-kvm answer (KVM may be unavailable, tcg fallback in use)"
 }
 
 stop_vm() {
