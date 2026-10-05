@@ -9,6 +9,7 @@
   modulesPath,
   scoot,
   flakeInputs,
+  patchedExtSrc,
   targetToplevel,
   ...
 }:
@@ -17,32 +18,9 @@ let
   system = pkgs.stdenv.hostPlatform.system;
   scootPkgs = scoot.packages.${system};
 
-  # Calamares with the scoot desktop choice, carried as a patch in this
-  # repo (never upstream): packagechooser gains scoot (default), and the
-  # nixos module writes flake.nix + configuration.nix for the scoot
-  # choice and installs with nixos-install --flake plus baked
-  # --override-inputs, so install works with the network cut.
-  # Anchors are asserted exactly-once by the patch script, so a nixpkgs
-  # re-pin that changes upstream fails the build loudly.
-  patchedExtSrc = pkgs.stdenv.mkDerivation {
-    name = "calamares-nixos-extensions-scoot-src";
-    buildCommand = ''
-      cp -r ${flakeInputs.nixpkgs}/pkgs/by-name/ca/calamares-nixos-extensions $out
-      chmod -R +w $out
-      ${pkgs.python3}/bin/python3 ${../nix/calamares-patch.py} \
-        $out \
-        ${../iso/target/flake.nix} \
-        ${../iso/target/configuration.nix} \
-        ${../nix/packagechooser-scoot.conf} \
-        ${flakeInputs.nixpkgs} \
-        ${flakeInputs.scoot} \
-        ${flakeInputs.home-manager} \
-        ${system} \
-        $out/src/modules/nixos/main.py \
-        $out/src/config/modules/packagechooser.conf
-    '';
-  };
-
+  # Calamares with the scoot desktop choice (patched source shared from
+  # the flake: the same derivation CI builds as
+  # packages.<system>.calamares-ext-patched-src).
   calamaresOverlay = final: prev: {
     calamares-nixos-extensions = prev.calamares-nixos-extensions.overrideAttrs (old: {
       src = patchedExtSrc;

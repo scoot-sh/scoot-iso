@@ -33,6 +33,31 @@
       ];
       forEach = f: nixpkgs.lib.genAttrs systems (system: f system);
       flakeInputs = { inherit nixpkgs scoot home-manager; };
+      # Calamares with the scoot desktop choice, carried as a patch in
+      # this repo (never upstream). Anchors are asserted exactly-once
+      # by the patch script, so a nixpkgs re-pin that changes upstream
+      # fails loudly. Shared by the live ISO (overlay) and exposed as a
+      # package so CI proves the patch applies on every PR.
+      mkPatchedExtSrc =
+        pkgs: system:
+        pkgs.stdenv.mkDerivation {
+          name = "calamares-nixos-extensions-scoot-src";
+          buildCommand = ''
+            cp -r ${nixpkgs}/pkgs/by-name/ca/calamares-nixos-extensions $out
+            chmod -R +w $out
+            ${pkgs.python3}/bin/python3 ${./nix/calamares-patch.py} \
+              $out \
+              ${./iso/target/flake.nix} \
+              ${./iso/target/configuration.nix} \
+              ${./nix/packagechooser-scoot.conf} \
+              ${nixpkgs} \
+              ${scoot} \
+              ${home-manager} \
+              ${system} \
+              $out/src/modules/nixos/main.py \
+              $out/src/config/modules/packagechooser.conf
+          '';
+        };
     in
     {
       nixosConfigurations =
@@ -47,6 +72,8 @@
               ];
               specialArgs = {
                 inherit scoot flakeInputs;
+                patchedExtSrc =
+                  mkPatchedExtSrc nixpkgs.legacyPackages.${system} system;
                 targetToplevel =
                   self.nixosConfigurations."scoot-target-${system}".config.system.build.toplevel;
               };
@@ -96,6 +123,8 @@
           # the GUI would write.
           target-flake = live.config.scootIso.targetFlake;
           target-configuration = live.config.scootIso.targetConfiguration;
+          calamares-ext-patched-src =
+            mkPatchedExtSrc nixpkgs.legacyPackages.${system} system;
           default = live.config.system.build.isoImage;
         }
       );
