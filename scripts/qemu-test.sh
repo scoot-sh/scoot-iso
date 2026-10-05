@@ -271,10 +271,10 @@ echo "--- welcome spawn env (what scoot autostart children inherit) ---"
 guest_exec 'cat /tmp/scoot-welcome-env.txt' || true
 msg_ok=0
 for _ in $(seq 1 3); do
-  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); ls "$XDG_RUNTIME_DIR"; for sock in "$XDG_RUNTIME_DIR"/*; do case "$sock" in *.lock) continue;; esac; export WAYLAND_DISPLAY=$(basename "$sock"); echo "trying display=$WAYLAND_DISPLAY"; scoot msg version && break; done; scoot msg windows'; then msg_ok=1; break; fi
+  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); ls "$XDG_RUNTIME_DIR"; for sock in "$XDG_RUNTIME_DIR"/*; do case "$sock" in *.lock) continue;; esac; disp=$(basename "$sock"); if su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$disp scoot msg version" >/dev/null 2>&1; then echo "display=$disp"; su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$disp scoot msg windows"; exit 0; fi; done; exit 1'; then msg_ok=1; break; fi
   sleep 5
 done
-[ "$msg_ok" = 1 ] || echo "MSG-WARN: live-session scoot msg never answered (transient resets observed); headless check in phase 3c remains the hard IPC proof"
+[ "$msg_ok" = 1 ] || echo "MSG-WARN: live-session scoot msg never answered; headless check in phase 3c remains the hard IPC proof"
 echo "--- firefox probes (diagnostic; never fatal) ---"
 guest_exec '
 echo "--- firefox processes ---"; pgrep -af "[f]irefox" || true
@@ -283,6 +283,8 @@ for pid in $(pgrep -f "[f]irefox.*scoot-welcome"); do echo "== $pid =="; tr "\0"
 echo "--- nixos home ---"; ls -la /home/nixos/ | head -20
 echo "--- mozilla dir ---"; ls -la /home/nixos/.mozilla/ 2>&1 || true
 echo "--- firefox --help (no profile needed) ---"; sudo -u nixos HOME=/home/nixos firefox --help 2>&1 | head -5 || true
+echo "--- firefox stderr from the session journal ---"; sudo -u nixos journalctl --user -b --no-pager 2>/dev/null | grep -iE "firefox|mozilla|profile|NS_ERROR" | head -20 || true
+echo "--- crashes? ---"; coredumpctl list --no-pager 2>/dev/null | head -5 || true
 id nixos
 exit 0
 ' || true
