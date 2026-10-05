@@ -442,6 +442,12 @@ git -C /mnt/home/$TEST_USER/nixos-config status --short || true
 git config --global --add safe.directory /mnt/home/$TEST_USER/nixos-config
 git -C /mnt/home/$TEST_USER/nixos-config status --short && echo GIT-ROOT-OK
 ls -la /mnt/home/$TEST_USER/nixos-config/ /mnt/etc/nixos
+echo '--- which flake sources are in the live store? ---'
+ls -d /nix/store/*-source 2>/dev/null | head -20 || true
+echo '--- offline eval probe (names anything not resolvable locally) ---'
+nix eval --offline --no-write-lock-file $overrides '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel.drvPath' 2>&1 | head -20 || true
+echo '--- nested override syntax probe ---'
+nix flake metadata --json --no-write-lock-file --override-input scoot/nixpkgs path:/nix/store/wr3njgpzrbmxfcdys91h0x23i9v12551-source /mnt/home/$TEST_USER/nixos-config 2>&1 | head -5 || true
 unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --option build-dir /nix/var/nix/builds \$overrides' > /tmp/install.log 2>&1
 rc=\$?
 echo INSTALL-RC:\$rc
