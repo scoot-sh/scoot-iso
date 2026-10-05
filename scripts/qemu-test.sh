@@ -271,7 +271,7 @@ echo "--- welcome spawn env (what scoot autostart children inherit) ---"
 guest_exec 'cat /tmp/scoot-welcome-env.txt' || true
 msg_ok=0
 for _ in $(seq 1 3); do
-  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); ls "$XDG_RUNTIME_DIR"; for sock in "$XDG_RUNTIME_DIR"/*; do case "$sock" in *.lock) continue;; esac; disp=$(basename "$sock"); if su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$disp scoot msg version" >/dev/null 2>&1; then echo "display=$disp"; su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$disp scoot msg windows"; exit 0; fi; done; exit 1'; then msg_ok=1; break; fi
+  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock; su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows"'; then msg_ok=1; break; fi
   sleep 5
 done
 [ "$msg_ok" = 1 ] || echo "MSG-WARN: live-session scoot msg never answered; headless check in phase 3c remains the hard IPC proof"
@@ -284,6 +284,17 @@ echo "--- nixos home ---"; ls -la /home/nixos/ | head -20
 echo "--- mozilla dir ---"; ls -la /home/nixos/.mozilla/ 2>&1 || true
 echo "--- firefox --help (no profile needed) ---"; sudo -u nixos HOME=/home/nixos firefox --help 2>&1 | head -5 || true
 echo "--- firefox stderr from the session journal ---"; sudo -u nixos journalctl --user -b --no-pager 2>/dev/null | grep -iE "firefox|mozilla|profile|NS_ERROR" | head -20 || true
+echo "--- firefox manual launch with captured stderr ---"
+guest_exec '
+pkill -f "[f]irefox.*scoot-welcome" || true
+sleep 2
+rm -rf /home/nixos/.mozilla
+su -s /bin/sh nixos -c "HOME=/home/nixos WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 firefox --new-window file:///etc/scoot-welcome/index.html > /tmp/ff-manual.log 2>&1 &"
+sleep 25
+echo "--- .mozilla now ---"; ls -laR /home/nixos/.mozilla 2>&1 | head -20 || true
+echo "--- manual launch log ---"; head -40 /tmp/ff-manual.log || true
+exit 0
+' || true
 echo "--- crashes? ---"; coredumpctl list --no-pager 2>/dev/null | head -5 || true
 id nixos
 exit 0
@@ -333,6 +344,16 @@ while True:
 for m in paths:
     assert os.path.exists(m), "baked override path missing from live store: " + m
     print("override path present:", m)
+q = chr(34)
+flags = []
+for name in ("nixpkgs", "scoot", "home-manager"):
+    i = src.find(q + name + q + ",")
+    assert i >= 0, "override input missing from shipped main.py: " + name
+    j = src.find("path:/nix/store/", i)
+    k = src.find(q, j)
+    flags += ["--override-input", name, src[j:k]]
+open("/tmp/iso-override-flags", "w").write(" ".join(flags))
+print("override flags:", " ".join(flags))
 print("EMBEDDING-OK")
 PYEOF
 '
@@ -403,7 +424,7 @@ print('RENDER-OK')
 PYEOF
 "
 guest_exec "
-export overrides=\$(python3 -c \"import glob,re; m=max((open(c).read() for c in glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')+glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')), key=len); print(' '.join(sum(([a,b] for a,b in re.findall(r'\"--override-input\",\s+\"([^\"]+)\",\s+\"(path:[^\"]+)\"', m)), [])))\")
+overrides=\$(cat /tmp/iso-override-flags)
 echo \"overrides: \$overrides\"
 ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 ip -o link show
