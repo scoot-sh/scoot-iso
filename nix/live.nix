@@ -86,6 +86,8 @@ let
   '';
 in
 {
+  imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-graphical-calamares.nix" ];
+
   options.scootIso = {
     targetFlake = lib.mkOption {
       type = lib.types.path;
@@ -102,8 +104,6 @@ in
   config = {
     scootIso.targetFlake = ../iso/target/flake.nix;
     scootIso.targetConfiguration = ../iso/target/configuration.nix;
-
-    imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-graphical-calamares.nix" ];
 
     isoImage.edition = lib.mkDefault "scoot";
 
