@@ -267,7 +267,14 @@ for _ in $(seq 1 24); do
   if guest_exec 'pgrep -af "firefox.*scoot-welcome" >/dev/null && echo FIREFOX-UP' 2>/dev/null | grep -q FIREFOX-UP; then break; fi
   sleep 5
 done
-guest_exec 'XDG_RUNTIME_DIR=/run/user/$(id -u nixos) scoot msg windows || sudo -u nixos XDG_RUNTIME_DIR=/run/user/$(id -u nixos) scoot msg windows' || true
+echo "--- welcome spawn env (what scoot autostart children inherit) ---"
+guest_exec 'cat /tmp/scoot-welcome-env.txt' || true
+msg_ok=0
+for _ in $(seq 1 3); do
+  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); ls "$XDG_RUNTIME_DIR"; export WAYLAND_DISPLAY=$(ls "$XDG_RUNTIME_DIR" | grep -m1 -E "^(wayland|scoot)"); echo "display=$WAYLAND_DISPLAY"; scoot msg windows'; then msg_ok=1; break; fi
+  sleep 5
+done
+[ "$msg_ok" = 1 ] || echo "MSG-WARN: live-session scoot msg never answered (transient resets observed); headless check in phase 3c remains the hard IPC proof"
 echo "--- firefox env (diagnostic; never fatal) ---"
 guest_exec '
 echo "--- firefox env ---"
@@ -327,7 +334,8 @@ PYEOF
 '
 
 echo "=== phase 2: unattended install, network cut ==="
-guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && partx -u /dev/vda && udevadm settle && lsblk -f /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && mount /dev/vda2 /mnt && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && nixos-generate-config --root /mnt && echo PARTITION-OK'
+guest_exec 'lsmod | grep -E "^(ext4|vfat)" || echo NO-FS-MODULES-LOADED; modprobe ext4 && echo MODPROBE-EXT4-OK || echo MODPROBE-EXT4-FAIL; modprobe vfat && echo MODPROBE-VFAT-OK || echo MODPROBE-VFAT-FAIL; grep -E "ext4|vfat" /proc/filesystems || echo NO-FS-IN-PROCFILESYS' || true
+guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && partx -u /dev/vda && udevadm settle && lsblk -f /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && blkid /dev/vda1 /dev/vda2 && (mount /dev/vda2 /mnt || (dmesg | tail -25; blkid; exit 1)) && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && nixos-generate-config --root /mnt && echo PARTITION-OK'
 # Render the target files from the SHIPPED main.py's embedded templates
 # (extracted exactly as the patch wrote them, then substituted with the
 # writer's own semantics for the default choice: scoot-moonrise in the

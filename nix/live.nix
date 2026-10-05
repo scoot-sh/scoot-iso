@@ -27,6 +27,7 @@ let
   welcomeFirstRun = pkgs.writeShellScript "scoot-welcome-first-run" ''
     set -eu
     export HOME=/home/nixos USER=nixos LOGNAME=nixos
+    env | sort > /tmp/scoot-welcome-env.txt
     flag="$HOME/.cache/scoot-iso/welcomed"
     if [ ! -f "$flag" ]; then
       mkdir -p "$(dirname "$flag")"
