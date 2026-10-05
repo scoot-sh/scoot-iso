@@ -63,6 +63,22 @@ jobs:
           path: result-iso/iso/*.iso
           retention-days: 14
 
+  # Probe: do GitHub's standard hosted runners expose /dev/kvm once a
+  # udev rule grants access? Runs on every PR in ~1 minute and gates the
+  # plan to run the full QEMU install test on ubuntu-latest below.
+  kvm-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: grant KVM access and probe
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+          [ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo "KVM node not readable/writable"; exit 1; }
+          sudo apt-get update -y -q
+          sudo apt-get install -y -q qemu-system-x86
+          qemu-system-x86_64 -accel help | grep -qi kvm && echo KVM-OK
+
   # Full QEMU install test: boots the ISO, installs offline with the
   # GUI-identical files, reboots into ReGreet, checks the session.
   # Needs KVM: GitHub-hosted runners have none, so this runs only on a
