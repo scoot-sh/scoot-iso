@@ -41,7 +41,7 @@ HM_USER_STANZA = """\
   home-manager.users."@@username@@".programs.scoot = {
     enable = true;
     desktop.enable = true;
-    desktop.look = "vinyl-sunset";
+    desktop.look = "@@SCOOT_LOOK@@";
   };
   home-manager.users."@@username@@".programs.scootbar.enable = true;
   home-manager.users."@@username@@".home.stateVersion = "25.11";
@@ -61,6 +61,18 @@ USERS_STANZA = """\
 
 TIMEZONE_LINE = '  time.timeZone = "@@timezone@@";\n'
 LOCALE_LINE = '  i18n.defaultLocale = "@@LANG@@";\n'
+
+# Calamares Desktop-page entries this patch owns (ids), each naming the
+# scoot look the installed system gets. moonrise is the default: its
+# wallpaper ships in the pinned scoot under the Unsplash License, so the
+# session shows a real illustration instead of a flat color.
+SCOOT_LOOKS = {
+    "scoot-moonrise": "moonrise",
+    "scoot-music-desk": "music-desk",
+    "scoot-radial-burst": "radial-burst",
+    "scoot-vinyl-sunset": "vinyl-sunset",
+}
+SCOOT_DEFAULT = "scoot-moonrise"
 
 
 def main() -> None:
@@ -94,13 +106,20 @@ def main() -> None:
     if "@@SYSTEM@@" in flake_baked:
         raise SystemExit("target flake.nix still has an unsubstituted @@SYSTEM@@")
 
-    for placeholder in ("@@TIMEZONE@@", "@@LOCALE@@", "@@SCOOT_USERS@@", "@@SCOOT_HM_USER@@"):
+    for placeholder in ("@@TIMEZONE@@", "@@LOCALE@@", "@@SCOOT_USERS@@", "@@SCOOT_HM_USER@@", "@@SCOOT_LOOK@@"):
         if placeholder not in config_text:
             raise SystemExit(f"target configuration.nix lost {placeholder}")
+    if "@@SCOOT_LOOK@@" in flake_baked:
+        raise SystemExit("target flake.nix must not contain @@SCOOT_LOOK@@")
 
-    # 1. The desktop list: scoot first, default selected.
-    chooser = replace_once(chooser, "default: gnome", "default: scoot", "chooser default")
+    # 1. The desktop list: the four scoot looks first, moonrise default
+    # selected. One entry per look (packagechooser is single-select, so
+    # the look rides the desktop id: scoot-<look>).
+    chooser = replace_once(chooser, "default: gnome", f"default: {SCOOT_DEFAULT}", "chooser default")
     chooser = replace_once(chooser, "items:", f"items:\n{item_text}", "chooser items")
+    for item_id in SCOOT_LOOKS:
+        if f"- id: {item_id}" not in chooser:
+            raise SystemExit(f"packagechooser item {item_id} missing after splice")
 
     # 2. When scoot is chosen, write our flake files instead of the
     # classic configuration.nix. The stock `variables` dict (hostname,
@@ -108,11 +127,15 @@ def main() -> None:
     # fallbacks as the classic path.
     anchor_write = '    libcalamares.utils.host_env_process_output(["cp", "/dev/stdin", config], None, cfg)\n'
     writer = (
-        '    if gs.value("packagechooser_packagechooser") == "scoot":\n'
+        '    scoot_choice = gs.value("packagechooser_packagechooser")\n'
+        '    scoot_looks = ' + repr(SCOOT_LOOKS) + '\n'
+        '    if scoot_choice in scoot_looks:\n'
+        '        scoot_look = scoot_looks[scoot_choice]\n'
         "        scoot_config_text = " + repr(config_text) + "\n"
         "        scoot_flake_text = " + repr(flake_baked) + "\n"
         '        scoot_vars = dict(variables)\n'
         '        scoot_vars.setdefault("hostname", "nixos")\n'
+        '        scoot_config_text = scoot_config_text.replace("@@SCOOT_LOOK@@", scoot_look)\n'
         '        if "timezone" in scoot_vars:\n'
         '            scoot_config_text = scoot_config_text.replace(\n'
         '                "@@TIMEZONE@@", ' + repr(TIMEZONE_LINE) + ')\n'
@@ -126,6 +149,7 @@ def main() -> None:
         '        if "username" in scoot_vars:\n'
         "            scoot_hm = " + repr(HM_USER_STANZA) + "\n"
         "            scoot_users = " + repr(USERS_STANZA) + "\n"
+        '            scoot_hm = scoot_hm.replace("@@SCOOT_LOOK@@", scoot_look)\n'
         "            for _key, _val in scoot_vars.items():\n"
         '                scoot_hm = scoot_hm.replace("@@" + _key + "@@", str(_val))\n'
         '                scoot_users = scoot_users.replace("@@" + _key + "@@", str(_val))\n'
@@ -160,7 +184,8 @@ def main() -> None:
     )
     cmd_patch = (
         anchor_cmd
-        + '    if gs.value("packagechooser_packagechooser") == "scoot":\n'
+        + '    if gs.value("packagechooser_packagechooser") in '
+        + repr(sorted(SCOOT_LOOKS)) + ':\n'
         + "        nixosInstallCmd.extend(\n"
         + "            [\n"
         + '                "--flake",\n'

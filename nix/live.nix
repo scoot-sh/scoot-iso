@@ -1,5 +1,5 @@
 # The scoot live system: a graphical NixOS installer ISO that boots
-# straight into a scoot session (full desktop profile, vinyl-sunset
+# straight into a scoot session (full desktop profile, moonrise
 # look) with autologin (live media only: standard for installer ISOs;
 # the installed system never autologins, it gets ReGreet).
 {
@@ -30,15 +30,19 @@ let
     fi
   '';
 
-  # Live compositor config for the nixos user: the vinyl-sunset look's
-  # appearance (no wallpaper image ships in-repo for it, so the flat
-  # background color shows) plus the welcome opener. Binds stay scoot's
-  # defaults.
+  # Live compositor config for the nixos user: the moonrise look's
+  # appearance and its shipped wallpaper (docs/assets/wallpapers/
+  # moonrise.png in the pinned scoot, under the Unsplash License),
+  # plus the welcome opener. Binds stay scoot's defaults.
   liveConfig = pkgs.writeText "live-config.toml" ''
     [appearance]
-    background_color = "#271A1F"
-    focus_ring_active_color = "#E59560"
-    focus_ring_inactive_color = "#423F51"
+    background_color = "#2B3648"
+    focus_ring_active_color = "#FF9A49"
+    focus_ring_inactive_color = "#5E4B5B"
+
+    [wallpaper]
+    image = "${scoot}/docs/assets/wallpapers/moonrise.png"
+    mode = "fill"
 
     [autostart]
     commands = ["spawn ${welcomeFirstRun}"]
@@ -77,15 +81,25 @@ in
       "flakes"
     ];
 
-    # The full desktop profile with the vinyl-sunset look, the session
+    # The full desktop profile with the moonrise look, the session
     # entry and the bar (the profile themes it through programs.scootbar
     # when that module is imported, which it is here).
     programs.scoot = {
       enable = true;
       package = scootPkgs.scoot;
       desktop.enable = true;
-      desktop.look = "vinyl-sunset";
+      desktop.look = "moonrise";
       session.enable = true;
+      # The installed system keeps the profile's idle policy (dim, lock,
+      # screens off: a laptop that never locks is not daily-drivable),
+      # but the live session must never lock or blank the screen: an
+      # install runs far longer than any idle timeout, and a locked or
+      # dark live session would stall Calamares, hide the welcome window
+      # and break the installer mid-write. Live media is physically
+      # present and ephemeral, so there is nothing to protect.
+      desktop.idle.enable = false;
+      desktop.idle.lock.enable = false;
+      desktop.idle.mediaInhibit.enable = false;
     };
     programs.scootbar = {
       enable = true;
@@ -97,12 +111,12 @@ in
         center = [ "clock" ];
         bar.height = 32;
         colors = {
-          background = "#271A1F";
-          foreground = "#F1E3C6";
-          accent = "#E59560";
-          hover = "#FDC58B";
-          dim = "#604F50";
-          urgent = "#C76B47";
+          background = "#2B3648";
+          foreground = "#F6EEDC";
+          accent = "#FFA45C";
+          hover = "#FFD54A";
+          dim = "#9C8B95";
+          urgent = "#E87F6A";
         };
         bar.font = "${pkgs.dejavu_fonts.minimal}/share/fonts/truetype/DejaVuSans.ttf";
         button.welcome = {
@@ -136,6 +150,11 @@ in
     ];
 
     environment.etc."scoot-welcome/index.html".source = ../iso/welcome/index.html;
+    # The welcome page's hero banner: the same moonrise illustration the
+    # session shows as its wallpaper (shipped in the pinned scoot under
+    # the Unsplash License; ~400 KB on an ISO measured in gigabytes).
+    environment.etc."scoot-welcome/moonrise.png".source =
+      "${scoot}/docs/assets/wallpapers/moonrise.png";
 
     # Seed the live user's compositor config at boot (the live home is
     # ephemeral; the NixOS module owns binaries and the login entry,

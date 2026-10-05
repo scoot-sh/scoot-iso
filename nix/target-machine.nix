@@ -50,7 +50,7 @@
   programs.scoot = {
     enable = true;
     desktop.enable = true;
-    desktop.look = "vinyl-sunset";
+    desktop.look = "moonrise";
     session.enable = true;
     greeter.enable = true;
   };
@@ -60,7 +60,7 @@
   home-manager.users.scoot.programs.scoot = {
     enable = true;
     desktop.enable = true;
-    desktop.look = "vinyl-sunset";
+    desktop.look = "moonrise";
   };
   home-manager.users.scoot.programs.scootbar.enable = true;
   home-manager.users.scoot.home.stateVersion = "25.11";

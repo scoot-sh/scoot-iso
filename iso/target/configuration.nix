@@ -58,11 +58,13 @@
 
   # The scoot desktop profile with the chosen look, the session entry and
   # the ReGreet greeter (programs.scoot.greeter: greetd running ReGreet
-  # under cage; never autologin on an installed system).
+  # under cage; never autologin on an installed system). The look line
+  # below names the Desktop-page default; the installer patch substitutes
+  # the picked look there at install time and asserts the line is intact.
   programs.scoot = {
     enable = true;
     desktop.enable = true;
-    desktop.look = "vinyl-sunset";
+    desktop.look = "@@SCOOT_LOOK@@";
     session.enable = true;
     greeter.enable = true;
   };

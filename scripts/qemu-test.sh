@@ -159,7 +159,21 @@ sleep 20 # let the scoot session settle
 qmp screendump "{\"filename\": \"$WORKDIR/live-session.ppm\"}" >/dev/null
 echo "live screenshot: $WORKDIR/live-session.ppm"
 
-echo "=== phase 1b: the shipped patch embeds our exact templates ==="
+echo "=== phase 1b: the welcome window ==="
+# The live session autostarts Firefox with the welcome page once per
+# boot. Wait for the window to appear, then screenshot it on its own:
+# `scoot msg windows` lists it, which also proves the compositor's IPC
+# answers on the live session.
+for _ in $(seq 1 24); do
+  if guest_exec 'pgrep -af "firefox.*scoot-welcome" >/dev/null && echo FIREFOX-UP' 2>/dev/null | grep -q FIREFOX-UP; then break; fi
+  sleep 5
+done
+guest_exec 'XDG_RUNTIME_DIR=/run/user/$(id -u nixos) scoot msg windows || sudo -u nixos XDG_RUNTIME_DIR=/run/user/$(id -u nixos) scoot msg windows' || true
+sleep 5 # let the welcome page paint
+qmp screendump "{\"filename\": \"$WORKDIR/welcome-window.ppm\"}" >/dev/null
+echo "welcome screenshot: $WORKDIR/welcome-window.ppm"
+
+echo "=== phase 1c: the shipped patch embeds our exact templates ==="
 # Copy the templates into the guest and assert the live ISO's patched
 # main.py contains them byte-for-byte (the patch embeds via repr()).
 # Same for the baked override-input store paths (they must exist live).
@@ -201,7 +215,8 @@ import base64, os, sys
 flake = base64.b64decode(sys.argv[1]).decode().replace('@@SYSTEM@@', '$SYSTEM')
 config = base64.b64decode(sys.argv[2]).decode()
 _, _, username, fullname, hostname, timezone, lang, nixosversion = sys.argv[1:9]
-config = config.replace('@@TIMEZONE@@', f'  time.timeZone = \"{timezone}\";')
+config = config.replace('@@SCOOT_LOOK@@', 'moonrise')
+config = config.replace('@@TIMEZONE@@', f'  time.timeZone = "{timezone}";')
 config = config.replace('@@LOCALE@@', f'  i18n.defaultLocale = \"{lang}\";')
 users = f'''  users.users.\"{username}\" = {{
     isNormalUser = true;
@@ -209,10 +224,10 @@ users = f'''  users.users.\"{username}\" = {{
     extraGroups = [ \"networkmanager\" \"wheel\" ];
   }};
 '''
-hm = f'''  home-manager.users.\"{username}\".imports = [ inputs.scoot.homeModules.scoot inputs.scoot.homeModules.scootbar ];
-  home-manager.users.\"{username}\".programs.scoot = {{ enable = true; desktop.enable = true; desktop.look = \"vinyl-sunset\"; }};
-  home-manager.users.\"{username}\".programs.scootbar.enable = true;
-  home-manager.users.\"{username}\".home.stateVersion = \"25.11\";
+hm = f'''  home-manager.users."{username}".imports = [ inputs.scoot.homeModules.scoot inputs.scoot.homeModules.scootbar ];
+  home-manager.users."{username}".programs.scoot = {{ enable = true; desktop.enable = true; desktop.look = "moonrise"; }};
+  home-manager.users."{username}".programs.scootbar.enable = true;
+  home-manager.users."{username}".home.stateVersion = "25.11";
 '''
 config = config.replace('  # @@SCOOT_USERS@@', users.rstrip('\n')).replace('  # @@SCOOT_HM_USER@@', hm.rstrip('\n'))
 config = config.replace('@@hostname@@', hostname).replace('@@nixosversion@@', nixosversion)
@@ -225,7 +240,7 @@ PYEOF
 guest_exec "
 export overrides=\$(python3 -c \"import glob,re; m=max((open(c).read() for c in glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')+glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')), key=len); print(' '.join(sum(([a,b] for a,b in re.findall(r'\"--override-input\",\s+\"([^\"]+)\",\s+\"(path:[^\"]+)\"', m)), [])))\"
 echo \"overrides: \$overrides\"
-ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo\$' | while read -r ifc; do ip link set \"\$ifc\" down; done
+ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 ip -o link show
 unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/etc/nixos#scoot --root /mnt --no-root-passwd --option build-dir /nix/var/nix/builds \$overrides' > /tmp/install.log 2>&1
 echo INSTALL-RC:\$?
@@ -273,7 +288,10 @@ echo "installed session screenshot: $WORKDIR/installed-session.ppm"
 echo "=== phase 3b: scoot msg checks via guest agent ==="
 # A login through ReGreet may or may not have landed (best effort
 # above); these checks run a headless session either way, proving the
-# installed binaries + desktop-profile config work.
+# installed binaries + desktop-profile config work. The bar and the
+# wallpaper daemon are checked first: the profile starts scootbar
+# through graphical-session.target and scootbg for the look's shipped
+# wallpaper, so both must be resident in a logged-in session.
 guest_exec "
 uid=\$(id -u $TEST_USER)
 export XDG_RUNTIME_DIR=/run/user/\$uid
@@ -281,6 +299,10 @@ mkdir -p \$XDG_RUNTIME_DIR
 chown $TEST_USER:users \$XDG_RUNTIME_DIR
 chmod 700 \$XDG_RUNTIME_DIR
 pgrep -ax scoot || true
+echo '--- bar + wallpaper ---'
+pgrep -af scootbar | head -3 || echo NO-SCOOTBAR-PROC
+pgrep -af scootbg | head -3 || echo NO-SCOOTBG-PROC
+su -s /bin/sh $TEST_USER -c 'XDG_RUNTIME_DIR=/run/user/\$(id -u) systemctl --user is-active scootbar' || echo BAR-UNIT-NOT-ACTIVE
 cat > /tmp/scoot-check.sh <<'CHEOF'
 export XDG_RUNTIME_DIR=__RUNTIME__
 export WAYLAND_DISPLAY=scoot-test-0
@@ -317,4 +339,41 @@ open(out, "wb").write(base64.b64decode(data))
 print("screenshot saved:", out)
 EOF
 stop_vm
+# Convert QMP's PPM screendumps to PNG for the workflow artifacts and
+# the README (stdlib only: P6 parse, raw RGB rows, no filter, zlib).
+python3 - "$WORKDIR" <<'EOF'
+import struct, sys, zlib
+from pathlib import Path
+def ppm_to_png(ppm: Path) -> None:
+    data = ppm.read_bytes()
+    assert data[:2] == b"P6", f"not a P6 PPM: {ppm}"
+    tail, pos, got = data[2:], 0, []
+    while len(got) < 3:
+        while tail[pos:pos + 1] in b" \t\r\n":
+            pos += 1
+        if tail[pos:pos + 1] == b"#":
+            pos = tail.index(b"\n", pos) + 1
+            continue
+        end = pos
+        while tail[end:end + 1] not in b" \t\r\n":
+            end += 1
+        got.append(tail[pos:end])
+        pos = end
+    w, h, vmax = int(got[0]), int(got[1]), int(got[2])
+    assert vmax == 255, f"maxval {vmax} unsupported: {ppm}"
+    raster = tail[pos + 1:]
+    assert len(raster) >= w * h * 3, f"short raster in {ppm}"
+    raster = raster[:w * h * 3]
+    raw = b"".join(b"\x00" + raster[y * w * 3:(y + 1) * w * 3] for y in range(h))
+    def chunk(typ: bytes, payload: bytes) -> bytes:
+        c = struct.pack(">I", len(payload)) + typ + payload
+        return c + struct.pack(">I", zlib.crc32(typ + payload) & 0xFFFFFFFF)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
+    out = ppm.with_suffix(".png")
+    out.write_bytes(png)
+    print(f"converted {ppm.name} -> {out.name} ({w}x{h})")
+for ppm in sorted(Path(sys.argv[1]).glob("*.ppm")):
+    ppm_to_png(ppm)
+EOF
 echo "=== qemu-test done; artifacts in $WORKDIR ==="
