@@ -192,7 +192,7 @@ wait_ga() {
     echo "=== journal errors ==="; journalctl -b -p err --no-pager | head -30 || true
     echo "=== firefox: nixos home ==="; ls -ladn /home/nixos; ls -la /home/nixos/ | head -20
     echo "=== firefox: mozilla dir ==="; ls -la /home/nixos/.mozilla/ 2>&1 || true
-    echo "=== firefox: process env ==="; for pid in $(pgrep -f "firefox.*scoot-welcome"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
+    echo "=== firefox: process env ==="; for pid in $(pgrep -f "[f]irefox.*scoot-welcome"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
     echo "=== firefox: passwd ==="; getent passwd nixos
   ' || echo "SSH dump failed"
   return 1
@@ -264,23 +264,25 @@ echo "=== phase 1b: the welcome window ==="
 # `scoot msg windows` lists it, which also proves the compositor's IPC
 # answers on the live session.
 for _ in $(seq 1 24); do
-  if guest_exec 'pgrep -af "firefox.*scoot-welcome" >/dev/null && echo FIREFOX-UP' 2>/dev/null | grep -q FIREFOX-UP; then break; fi
+  if guest_exec 'pgrep -af "[f]irefox.*scoot-welcome" >/dev/null && echo FIREFOX-UP' 2>/dev/null | grep -q FIREFOX-UP; then break; fi
   sleep 5
 done
 echo "--- welcome spawn env (what scoot autostart children inherit) ---"
 guest_exec 'cat /tmp/scoot-welcome-env.txt' || true
 msg_ok=0
 for _ in $(seq 1 3); do
-  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); ls "$XDG_RUNTIME_DIR"; export WAYLAND_DISPLAY=$(ls "$XDG_RUNTIME_DIR" | grep -m1 -E "^(wayland|scoot)"); echo "display=$WAYLAND_DISPLAY"; scoot msg windows'; then msg_ok=1; break; fi
+  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); ls "$XDG_RUNTIME_DIR"; for sock in "$XDG_RUNTIME_DIR"/*; do case "$sock" in *.lock) continue;; esac; export WAYLAND_DISPLAY=$(basename "$sock"); echo "trying display=$WAYLAND_DISPLAY"; scoot msg version && break; done; scoot msg windows'; then msg_ok=1; break; fi
   sleep 5
 done
 [ "$msg_ok" = 1 ] || echo "MSG-WARN: live-session scoot msg never answered (transient resets observed); headless check in phase 3c remains the hard IPC proof"
-echo "--- firefox env (diagnostic; never fatal) ---"
+echo "--- firefox probes (diagnostic; never fatal) ---"
 guest_exec '
+echo "--- firefox processes ---"; pgrep -af "[f]irefox" || true
 echo "--- firefox env ---"
-for pid in $(pgrep -f "firefox.*scoot-welcome"); do echo "== $pid =="; tr '\0' '\n' < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
+for pid in $(pgrep -f "[f]irefox.*scoot-welcome"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
 echo "--- nixos home ---"; ls -la /home/nixos/ | head -20
 echo "--- mozilla dir ---"; ls -la /home/nixos/.mozilla/ 2>&1 || true
+echo "--- firefox --help (no profile needed) ---"; sudo -u nixos HOME=/home/nixos firefox --help 2>&1 | head -5 || true
 id nixos
 exit 0
 ' || true
@@ -399,7 +401,7 @@ print('RENDER-OK')
 PYEOF
 "
 guest_exec "
-export overrides=\$(python3 -c \"import glob,re; m=max((open(c).read() for c in glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')+glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')), key=len); print(' '.join(sum(([a,b] for a,b in re.findall(r'\"--override-input\",\s+\"([^\"]+)\",\s+\"(path:[^\"]+)\"', m)), [])))\"
+export overrides=\$(python3 -c \"import glob,re; m=max((open(c).read() for c in glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')+glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')), key=len); print(' '.join(sum(([a,b] for a,b in re.findall(r'\"--override-input\",\s+\"([^\"]+)\",\s+\"(path:[^\"]+)\"', m)), [])))\")
 echo \"overrides: \$overrides\"
 ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 ip -o link show
