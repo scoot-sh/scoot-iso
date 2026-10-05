@@ -195,6 +195,10 @@ in
       script = ''
         mkdir -p /home/nixos/.config/scoot
         cp ${liveConfig} /home/nixos/.config/scoot/config.toml
+        # The live home itself must belong to nixos: the autostarted
+        # Firefox creates its profile under it on first login, and a
+        # root-owned home fails with "profile cannot be loaded".
+        chown nixos:users /home/nixos
         chown -R nixos:users /home/nixos/.config/scoot
       '';
     };
