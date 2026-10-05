@@ -32,6 +32,9 @@ jobs:
       - name: patched source check (same derivation the ISO overlays)
         run: |
           nix build .#packages.x86_64-linux.calamares-ext-patched-src --print-build-logs
+      - name: patched package check (proves the source keeps the expected layout)
+        run: |
+          nix build .#packages.x86_64-linux.calamares-nixos-scoot --print-build-logs
 
   build-iso:
     needs: check

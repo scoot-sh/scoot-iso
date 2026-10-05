@@ -9,7 +9,7 @@
   modulesPath,
   scoot,
   flakeInputs,
-  patchedExtSrc,
+  calamaresOverlay,
   targetToplevel,
   ...
 }:
@@ -17,15 +17,6 @@
 let
   system = pkgs.stdenv.hostPlatform.system;
   scootPkgs = scoot.packages.${system};
-
-  # Calamares with the scoot desktop choice (patched source shared from
-  # the flake: the same derivation CI builds as
-  # packages.<system>.calamares-ext-patched-src).
-  calamaresOverlay = final: prev: {
-    calamares-nixos-extensions = prev.calamares-nixos-extensions.overrideAttrs (old: {
-      src = patchedExtSrc;
-    });
-  };
 
   # First-login welcome: opens once per live boot, always reachable
   # later via the launcher entry and the bar's Welcome button.

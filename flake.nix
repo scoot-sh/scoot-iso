@@ -36,8 +36,9 @@
       # Calamares with the scoot desktop choice, carried as a patch in
       # this repo (never upstream). Anchors are asserted exactly-once
       # by the patch script, so a nixpkgs re-pin that changes upstream
-      # fails loudly. Shared by the live ISO (overlay) and exposed as a
-      # package so CI proves the patch applies on every PR.
+      # fails loudly. Shared by the live ISO (overlay) and exposed as
+      # packages so CI proves the patch applies AND the package builds
+      # on every PR.
       mkPatchedExtSrc =
         pkgs: system:
         pkgs.stdenv.mkDerivation {
@@ -58,6 +59,17 @@
               $out/src/config/modules/packagechooser.conf
           '';
         };
+      # Note the /src suffix: the package's src is the src/
+      # subdirectory (modules/, config/, branding/), not the extension
+      # root (package.nix: src = ./src, installPhase copies modules/).
+      mkCalamaresOverlay =
+        patchedSrc: final: prev: {
+          calamares-nixos-extensions =
+            prev.calamares-nixos-extensions.overrideAttrs (_old: {
+              src = patchedSrc + "/src";
+            });
+        };
+      calamaresFor = system: mkPatchedExtSrc nixpkgs.legacyPackages.${system} system;
     in
     {
       nixosConfigurations =
@@ -72,8 +84,7 @@
               ];
               specialArgs = {
                 inherit scoot flakeInputs;
-                patchedExtSrc =
-                  mkPatchedExtSrc nixpkgs.legacyPackages.${system} system;
+                calamaresOverlay = mkCalamaresOverlay (calamaresFor system);
                 targetToplevel =
                   self.nixosConfigurations."scoot-target-${system}".config.system.build.toplevel;
               };
@@ -128,8 +139,13 @@
           target-configuration =
             nixpkgs.legacyPackages.${system}.runCommand "scoot-target-configuration.nix" { }
               "cp ${./iso/target/configuration.nix} $out";
-          calamares-ext-patched-src =
-            mkPatchedExtSrc nixpkgs.legacyPackages.${system} system;
+          calamares-ext-patched-src = calamaresFor system;
+          # The overlaid package itself (file copies only): proves the
+          # patched source keeps the package's expected layout.
+          calamares-nixos-scoot =
+            nixpkgs.legacyPackages.${system}.calamares-nixos-extensions.overrideAttrs (_old: {
+              src = calamaresFor system + "/src";
+            });
           default = live.config.system.build.isoImage;
         }
       );
