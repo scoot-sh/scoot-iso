@@ -185,23 +185,39 @@ wait_ga() {
     echo "=== modules-load ==="; systemctl status systemd-modules-load --no-pager || true
     echo "=== journal errors ==="; journalctl -b -p err --no-pager | head -30 || true
   ' || echo "SSH dump failed"
-  echo "--- TEMP DEBUG: agent journal via SSH ---"
-  sshpass -p debug123 ssh -p 10022 -o StrictHostKeyChecking=no nixos@localhost 'journalctl -u qemu-guest-agent --no-pager | tail -20' || echo "agent journal failed"
-  echo "--- TEMP DEBUG: host-direct qga ping over the chardev socket ---"
-  python3 - "$GASOCK" <<'EOF' || echo "host-direct ping script failed"
-import json, socket, sys
+  echo "--- TEMP DEBUG: qga transport experiment ---"
+  python3 - "$GASOCK" <<'EOF' || echo "transport experiment failed"
+import base64, json, socket, sys, time
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(10)
-try:
-    s.connect(sys.argv[1])
-except OSError as e:
-    print(f"chardev socket connect failed: {e}")
-    sys.exit(0)
+s.settimeout(20)
+s.connect(sys.argv[1])
 f = s.makefile("rwb")
-f.write(json.dumps({"execute": "guest-sync-delimited", "arguments": {"id": 1}}).encode() + b"\n"); f.flush()
-print("sync reply:", f.readline().decode(errors="replace").strip()[:200])
-f.write(json.dumps({"execute": "guest-ping"}).encode() + b"\n"); f.flush()
-print("ping reply:", f.readline().decode(errors="replace").strip()[:200])
+def transact(obj):
+    data = json.dumps(obj).encode() + b"\n"
+    print(f"C2S {len(data)} bytes: {data[:100]!r}", flush=True)
+    f.write(data); f.flush()
+    while True:
+        line = f.readline()
+        if not line: raise SystemExit("closed")
+        line = line.lstrip(b"\xff")
+        try: msg = json.loads(line)
+        except ValueError: continue
+        if "return" in msg or "error" in msg: return msg
+print("sync:", transact({"execute": "guest-sync-delimited", "arguments": {"id": 424242}}))
+rA = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "echo ARGV-OK"], "capture-output": True}})
+rB = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | /bin/sh"], "input-data": base64.b64encode(b"echo STDIN-OK").decode(), "capture-output": True}})
+print("A submit:", rA)
+print("B submit:", rB)
+pids = [("A", rA["return"]["pid"]), ("B", rB["return"]["pid"])]
+done = set()
+for _ in range(30):
+    time.sleep(2)
+    for tag, pid in pids:
+        if (tag, pid) in done: continue
+        r = transact({"execute": "guest-exec-status", "arguments": {"pid": pid}})
+        print(tag, "status:", r, flush=True)
+        if r.get("return", {}).get("exited"): done.add((tag, pid))
+    if len(done) == 2: break
 EOF
   return 1
 }
