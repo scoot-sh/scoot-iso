@@ -121,7 +121,7 @@ wait_ga() {
   for _ in $(seq 1 150); do
     n=$((n + 1))
     if qmp guest-ping '{}' 2>/dev/null | grep -q '"return"'; then return 0; fi
-    if [ $((n % 12)) -eq 0 ]; then echo "still waiting for guest agent (${n}x5s)..."; qmp query-status '{}' 2>/dev/null || echo "QMP unreachable"; fi
+    if [ $((n % 12)) -eq 0 ]; then echo "still waiting for guest agent (${n}x5s)..."; qmp query-status '{}' 2>/dev/null || echo "QMP unreachable"; qmp screendump "{\"filename\": \"$WORKDIR/boot-progress-$n.ppm\"}" >/dev/null 2>&1 || echo "progress screendump failed"; fi
     sleep 5
   done
   echo "guest agent never came up" >&2
@@ -163,7 +163,21 @@ start_vm() {
   fi
   echo "--- QMP status after start ---"
   qmp query-status '{}' || echo "QMP unreachable right after start"
-  qmp query-kvm '{}' || echo "no query-kvm answer (KVM may be unavailable, tcg fallback in use)"
+  echo "--- KVM or TCG? ---"
+  python3 - "$QMP" <<'EOF' || echo "info-kvm query failed"
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(sys.argv[1])
+f = s.makefile("rwb")
+f.readline()
+def cmd(obj):
+    f.write(json.dumps(obj).encode() + b"\n"); f.flush()
+    while True:
+        msg = json.loads(f.readline())
+        if "return" in msg or "error" in msg: return msg
+cmd({"execute": "qmp_capabilities"})
+print(json.dumps(cmd({"execute": "human-monitor-command", "arguments": {"command-line": "info kvm"}})))
+EOF
 }
 
 stop_vm() {
