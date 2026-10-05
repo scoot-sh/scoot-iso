@@ -1,7 +1,12 @@
-# Written by the scoot-iso installer (Calamares, scoot choice) to
-# /etc/nixos/configuration.nix on the target, beside flake.nix and
-# hardware-configuration.nix. Installed with
-#   nixos-install --flake /etc/nixos#scoot --root <root> --no-root-passwd
+# Written by the scoot-iso installer (Calamares, scoot choice) to the
+# target's nixos-config: /home/<user>/nixos-config/ for the home-folder
+# choice (owned by the user, a git repo, /etc/nixos symlinked to it) or
+# /etc/nixos/ itself for the system-wide choice (root-owned git repo).
+# Beside it land flake.nix, flake.lock (pinned github revs, never the
+# installer's path: overrides) and hardware-configuration.nix.
+# Installed with
+#   nixos-install --flake <config-dir>#scoot --root <root> --no-root-passwd
+#   --no-write-lock-file
 #   --override-input nixpkgs/scoot/home-manager path:<ISO store paths>
 # so install works with the network cut (the target closure is in the
 # ISO's store; the override paths are baked at ISO build time).
@@ -49,8 +54,11 @@
   # Install firefox.
   programs.firefox.enable = true;
 
-  # A terminal for the default super+Return bind.
-  environment.systemPackages = with pkgs; [ foot ];
+  # A terminal for daily use and the git the nixos-config repo needs.
+  environment.systemPackages = with pkgs; [
+    foot
+    git
+  ];
 
   # VM integration (QEMU guest agent: clipboard/host integration, and
   # the guest-exec channel the QEMU test drives `scoot msg` through).
@@ -71,6 +79,15 @@
 
   # The status bar, themed by the look through the desktop profile.
   programs.scootbar.enable = true;
+
+  # nh, the rebuild helper: NH_FLAKE points at this very flake, so
+  # `nh os switch` rebuilds it. @@SCOOT_NH_FLAKE@@ is the flake's home:
+  # /home/<user>/nixos-config for the home-folder choice (with
+  # /etc/nixos symlinked to it), /etc/nixos for the system-wide choice.
+  programs.nh = {
+    enable = true;
+    flake = "@@SCOOT_NH_FLAKE@@";
+  };
 
   # @@SCOOT_HM_USER@@
 

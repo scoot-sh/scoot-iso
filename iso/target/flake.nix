@@ -1,8 +1,10 @@
-# Written by the scoot-iso installer (Calamares, scoot choice) to
-# /etc/nixos/flake.nix on the target. Same revs the ISO was built from
-# (see README "What the installer writes"); `@@SYSTEM@@` is substituted
-# at ISO build time with the ISO's own system (x86_64-linux or
-# aarch64-linux). After install, with network:
+# Written by the scoot-iso installer (Calamares, scoot choice) to the
+# target's nixos-config (~/nixos-config for the home-folder choice,
+# /etc/nixos for the system-wide choice) beside configuration.nix,
+# flake.lock and hardware-configuration.nix. Same revs the ISO was built
+# from (see README "What the installer writes"); `@@SYSTEM@@` is
+# substituted at ISO build time with the ISO's own system (x86_64-linux
+# or aarch64-linux). After install, with network:
 #   nixos-rebuild switch --flake /etc/nixos#scoot
 {
   description = "scoot on NixOS (written by the scoot-iso installer)";

@@ -151,9 +151,11 @@ EOF
 
 # guest_exec <shell-command>: run via qemu-ga as root, poll, print output.
 # The command travels in argv (see above); keep each invocation small
-# (a few KB at most) and read bulk data from guest files instead.
+# (a few KB at most) and read bulk data from guest files instead. The
+# agent's PATH is bare, so every command starts with the system profile
+# on PATH (NixOS keeps all system tools in /run/current-system/sw/bin).
 guest_exec() {
-  qga exec "$1"
+  qga exec "export PATH=/run/current-system/sw/bin:/usr/bin:/bin; $1"
 }
 
 wait_ga() {
@@ -251,6 +253,7 @@ stop_vm() {
 echo "=== phase 1: boot live ISO ==="
 start_vm d
 wait_ga
+guest_exec 'echo "PATH=$PATH"; command -v python3 base64 wc pgrep sgdisk git nixos-install; ls /run/current-system/sw/bin/python3*' || true
 sleep 20 # let the scoot session settle
 qmp screendump "{\"filename\": \"$WORKDIR/live-session.ppm\"}" >/dev/null
 echo "live screenshot: $WORKDIR/live-session.ppm"
@@ -285,10 +288,11 @@ echo "=== phase 1c: the shipped patch embeds our exact templates ==="
 # Same for the baked override-input store paths (they must exist live).
 flake_hash=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1]).read().replace("@@SYSTEM@@", sys.argv[2]).encode()).hexdigest())' "$TARGET_FLAKE" "$SYSTEM")
 config_hash=$(sha256sum "$TARGET_CONFIG" | cut -d' ' -f1)
+lock_hash=$(sha256sum "$(dirname "$0")/../iso/target/flake.lock" | cut -d' ' -f1)
 guest_exec '
-python3 - '"$flake_hash"' '"$config_hash"' <<'PYEOF'
+python3 - '"$flake_hash"' '"$config_hash"' '"$lock_hash"' <<'PYEOF'
 import ast, glob, hashlib, os, sys
-want = {"scoot_flake_text": sys.argv[1], "scoot_config_text": sys.argv[2]}
+want = {"scoot_flake_text": sys.argv[1], "scoot_config_text": sys.argv[2], "scoot_lock_text": sys.argv[3]}
 cands = glob.glob("/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py")
 cands += glob.glob("/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py")
 cands += glob.glob("/run/current-system/sw/share/calamares/modules/nixos/main.py")
@@ -326,12 +330,15 @@ echo "=== phase 2: unattended install, network cut ==="
 guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && mount /dev/vda2 /mnt && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && nixos-generate-config --root /mnt && echo PARTITION-OK'
 # Render the target files from the SHIPPED main.py's embedded templates
 # (extracted exactly as the patch wrote them, then substituted with the
-# writer's own semantics for the default scoot-moonrise choice), then
-# install with the guest network namespace emptied (unshare -n): any
-# missing closure path fails here instead of phoning home.
+# writer's own semantics for the default choice: scoot-moonrise in the
+# home folder), into /mnt/home/<user>/nixos-config with /etc/nixos
+# symlinked to it, committed to git and user-owned — byte for byte what
+# the GUI writes. Then install with the guest network namespace emptied
+# (unshare -n): any missing closure path fails here instead of phoning
+# home.
 guest_exec "
 python3 - '$TEST_USER' 'Test User' 'scoot-test' 'Etc/UTC' 'en_US.UTF-8' '25.11' '$SYSTEM' <<'PYEOF'
-import ast, glob, os, sys
+import ast, glob, os, subprocess, sys
 _, username, fullname, hostname, timezone, lang, nixosversion, system = sys.argv
 cands = glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')
 cands += glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')
@@ -349,6 +356,7 @@ def grab(name):
     raise SystemExit('template not found in shipped main.py: ' + name)
 flake = grab('scoot_flake_text').replace('@@SYSTEM@@', system)
 config = grab('scoot_config_text')
+lock = grab('scoot_lock_text')
 hm = grab('scoot_hm').replace('@@SCOOT_LOOK@@', 'moonrise')
 users = grab('scoot_users')
 scoot_vars = {'hostname': hostname, 'username': username, 'fullname': fullname, 'timezone': timezone, 'LANG': lang, 'nixosversion': nixosversion}
@@ -356,6 +364,7 @@ for _key, _val in scoot_vars.items():
     hm = hm.replace('@@' + _key + '@@', _val)
     users = users.replace('@@' + _key + '@@', _val)
 config = config.replace('@@SCOOT_LOOK@@', 'moonrise')
+config = config.replace('@@SCOOT_NH_FLAKE@@', '/home/' + username + '/nixos-config')
 config = config.replace('  # @@TIMEZONE@@\n', '  time.timeZone = \"' + timezone + '\";\n')
 config = config.replace('  # @@LOCALE@@\n', '  i18n.defaultLocale = \"' + lang + '\";\n')
 config = config.replace('  # @@SCOOT_HM_USER@@', hm.rstrip(chr(10))).replace('  # @@SCOOT_USERS@@', users.rstrip(chr(10)))
@@ -363,9 +372,21 @@ for _key, _val in scoot_vars.items():
     config = config.replace('@@' + _key + '@@', _val)
 assert '@@' not in config, 'unsubstituted marker left in rendered config'
 assert '@@' not in flake, 'unsubstituted marker left in rendered flake'
-os.makedirs('/mnt/etc/nixos', exist_ok=True)
-open('/mnt/etc/nixos/flake.nix', 'w').write(flake)
-open('/mnt/etc/nixos/configuration.nix', 'w').write(config)
+flakedir = '/mnt/home/' + username + '/nixos-config'
+os.makedirs(flakedir, exist_ok=True)
+open(flakedir + '/flake.nix', 'w').write(flake)
+open(flakedir + '/configuration.nix', 'w').write(config)
+open(flakedir + '/flake.lock', 'w').write(lock)
+_hw = open('/mnt/etc/nixos/hardware-configuration.nix').read()
+open(flakedir + '/hardware-configuration.nix', 'w').write(_hw)
+os.remove('/mnt/etc/nixos/configuration.nix')
+os.remove('/mnt/etc/nixos/hardware-configuration.nix')
+os.rmdir('/mnt/etc/nixos')
+os.symlink('/home/' + username + '/nixos-config', '/mnt/etc/nixos')
+subprocess.check_output(['git', '-C', flakedir, 'init', '-b', 'main'])
+subprocess.check_output(['git', '-C', flakedir, 'add', '-A'])
+subprocess.check_output(['git', '-C', flakedir, '-c', 'user.name=' + fullname, '-c', 'user.email=' + username + '@localhost', 'commit', '-m', 'Initial scoot system (scoot-iso installer)'])
+subprocess.check_output(['chown', '-R', '1000:100', flakedir])
 print('RENDER-OK')
 PYEOF
 "
@@ -374,7 +395,7 @@ export overrides=\$(python3 -c \"import glob,re; m=max((open(c).read() for c in 
 echo \"overrides: \$overrides\"
 ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 ip -o link show
-unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/etc/nixos#scoot --root /mnt --no-root-passwd --option build-dir /nix/var/nix/builds \$overrides' > /tmp/install.log 2>&1
+unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --option build-dir /nix/var/nix/builds \$overrides' > /tmp/install.log 2>&1
 rc=\$?
 echo INSTALL-RC:\$rc
 tail -5 /tmp/install.log
@@ -419,7 +440,35 @@ sleep 25
 qmp screendump "{\"filename\": \"$WORKDIR/installed-session.ppm\"}" >/dev/null
 echo "installed session screenshot: $WORKDIR/installed-session.ppm"
 
-echo "=== phase 3b: scoot msg checks via guest agent ==="
+echo "=== phase 3b: the installed flake is normal and maintainable ==="
+# The installer wrote ~/nixos-config (home default) with /etc/nixos
+# symlinked to it. Prove it: ownership, the git repo, a github-pinned
+# lock with no path: overrides, then rebuild offline two ways
+# (nixos-rebuild and nh, network namespace emptied).
+guest_exec '
+echo "--- flake home ---"
+ls -lad /etc/nixos /home/'$TEST_USER'/nixos-config
+test -L /etc/nixos && echo SYMLINK-OK
+stat -c "%U %G %a %n" /home/'$TEST_USER'/nixos-config /home/'$TEST_USER'/nixos-config/flake.nix
+echo "--- git repo ---"
+git -C /home/'$TEST_USER'/nixos-config log --oneline
+git -C /home/'$TEST_USER'/nixos-config status --short
+echo "--- flake files ---"
+cat /home/'$TEST_USER'/nixos-config/flake.nix
+echo "--- lock inputs ---"
+python3 - /home/'$TEST_USER'/nixos-config/flake.lock <<'PYEOF'
+import json, sys
+lock = json.load(open(sys.argv[1]))
+for node in ("nixpkgs", "scoot", "home-manager"):
+    locked = lock["nodes"][node]["locked"]
+    print(node, locked["type"] + ":" + locked.get("owner", "") + "/" + locked.get("repo", ""), locked["rev"])
+    assert locked["type"] == "github", "not a github input: " + node
+raw = open(sys.argv[1]).read()
+assert "path:/nix/store" not in raw, "override leaked into the installed lock"
+print("LOCK-OK")
+PYEOF
+'
+echo "=== phase 3c: scoot msg checks via guest agent ==="
 # A login through ReGreet may or may not have landed (best effort
 # above); these checks run a headless session either way, proving the
 # installed binaries + desktop-profile config work. The bar and the
@@ -482,6 +531,23 @@ then
 else
   echo "PNG-FETCH-WARN: continuing with the QMP screendump alone"
 fi
+echo "=== phase 3e: offline rebuilds on the installed system ==="
+# The network namespace is emptied, so success proves the store holds
+# everything a maintainable flake needs; the lock hash before/after
+# proves neither rebuild rewrote it. nh switches last (it re-activates).
+guest_exec '
+lock_before=$(sha256sum /home/'$TEST_USER'/nixos-config/flake.lock)
+ip link show | awk -F": " "{print \$2}" | grep -v "^lo$" | while read -r ifc; do ip link set "\$ifc" down; done
+fail=0
+unshare -n /bin/sh -c "ip link set lo up; nixos-rebuild build --flake /etc/nixos#scoot" && echo REBUILD-OK || fail=1
+unshare -n /bin/sh -c "ip link set lo up; NH_FLAKE=/home/'$TEST_USER'/nixos-config nh os switch" && echo NH-OK || fail=1
+lock_after=$(sha256sum /home/'$TEST_USER'/nixos-config/flake.lock)
+echo "lock before: $lock_before"
+echo "lock after:  $lock_after"
+[ "$lock_before" = "$lock_after" ] && echo LOCK-STABLE-OK || fail=1
+nix flake metadata /home/'$TEST_USER'/nixos-config --json | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k, v[\"locked\"].get(\"rev\", \"?\")) for k,v in d.get(\"locks\",{}).get(\"nodes\",{}).items() if \"locked\" in v]" || fail=1
+exit $fail
+'
 stop_vm
 # Convert QMP's PPM screendumps to PNG for the workflow artifacts and
 # the README (stdlib only; idempotent, so the workflow's fallback step

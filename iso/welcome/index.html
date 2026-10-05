@@ -107,6 +107,11 @@
   </section>
 
   <section>
+    <h2>Your system config</h2>
+    <p>Installing puts your whole system in a flake at <strong>~/nixos-config</strong> &mdash; a git repo you own (<code>/etc/nixos</code> is a symlink to it, so every guide still works). Edit it as yourself, commit, and rebuild with <code class="cmd">nh os switch</code> (or <code>nixos-rebuild switch --flake ~/nixos-config#scoot</code>). Prefer a root-owned layout? Pick <strong>System-wide in /etc/nixos</strong> on the installer's Config-location page instead.</p>
+  </section>
+
+  <section>
     <h2>Essential keys</h2>
     <p>The full default map ships in the installed docs; these are the ones to learn first. The <kbd>super</kbd> key is usually the OS/Windows key.</p>
     <table class="keys">

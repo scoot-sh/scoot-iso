@@ -67,28 +67,57 @@ Boot the stick in UEFI mode.
 
 ## What the installer writes
 
-Picking scoot writes two small files to `/etc/nixos` on the target
-(source of truth: `iso/target/` in this repo):
+Picking scoot writes a flake to the target (source of truth: `iso/target/`
+in this repo), then builds the first system from it with
+`nixos-install --flake <config-dir>#scoot` (inputs overridden to the
+ISO's store paths, `--no-write-lock-file`, network cut):
 
 - `flake.nix`: inputs nixpkgs, scoot and home-manager pinned to the
   exact revs the ISO was built from, exposing
   `nixosConfigurations.scoot`.
+- `flake.lock`: the same pins resolved to real upstream (`github:`)
+  inputs — never the installer's `path:` overrides — so the installed
+  system is a normal maintainable flake afterwards.
 - `configuration.nix`: imports scoot's NixOS modules
   (`nixosModules.scoot`, `nixosModules.scootbar`) and home-manager
   (`nixosModules.home-manager`), enables the desktop profile with the
   chosen look, the session entry, the ReGreet greeter
   (`programs.scoot.greeter`: greetd running ReGreet under cage), the
-  scootbar, and the scoot Cachix substituter (so the install pulls
-  binaries instead of compiling), plus the per-user desktop profile
-  for the account created during install.
+  scootbar, `programs.nh` pointed at the flake itself, and the scoot
+  Cachix substituter (so the install pulls binaries instead of
+  compiling), plus the per-user desktop profile for the account created
+  during install.
+- `hardware-configuration.nix`: generated on the target as usual.
 
-Install runs `nixos-install --flake /etc/nixos#scoot` with the flake
-inputs overridden to the ISO's store paths, and the target closure
-ships in the ISO (`isoImage.storeContents`), so install works with the
-network cut — proven by `scripts/qemu-test.sh`, which installs inside
-an emptied network namespace. After install, with network,
+Where the flake lives is a choice on the installer's Config-location
+page (a second packagechooser page carried by the same patch):
+
+- **In my home folder (recommended, default):**
+  `~/nixos-config`, owned by you, a git repo with a first commit;
+  `/etc/nixos` is a symlink to it, so `sudo nixos-rebuild switch` and
+  every `/etc/nixos`-assuming guide still work. Edit as yourself and
+  rebuild with `nh os switch` (or
+  `nixos-rebuild switch --flake ~/nixos-config#scoot`).
+- **System-wide in /etc/nixos:** the classic root-owned layout (also a
+  git repo with a first commit, no symlink,
+  `programs.nh.flake = "/etc/nixos"`). Edit with sudo and rebuild with
+  `sudo nixos-rebuild switch` (or `nh os switch`).
+
+```nix
+# ~/nixos-config/configuration.nix, after installing:
+programs.scoot.desktop.look = "music-desk";
+# ... and the home-manager user half in the same file, then:
+# nh os switch
+```
+
+Install runs with the flake inputs overridden to the ISO's store paths,
+and the target closure ships in the ISO (`isoImage.storeContents`), so
+install works with the network cut — proven by `scripts/qemu-test.sh`,
+which installs inside an emptied network namespace, then reboots and
+rebuilds the installed system offline both ways (`nixos-rebuild build`
+and `nh os switch`). After install, with network,
 `nixos-rebuild switch --flake /etc/nixos#scoot` manages the system
-normally.
+normally (the symlink resolves it to your home copy).
 
 The Calamares changes are a patch carried in this repo
 (`nix/calamares-patch.py`, applied to

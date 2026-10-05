@@ -50,13 +50,17 @@
               $out \
               ${./iso/target/flake.nix} \
               ${./iso/target/configuration.nix} \
+              ${./iso/target/flake.lock} \
               ${./nix/packagechooser-scoot.conf} \
+              ${./nix/packagechooser-scoot-location.conf} \
               ${nixpkgs} \
               ${scoot} \
               ${home-manager} \
               ${system} \
               $out/src/modules/nixos/main.py \
-              $out/src/config/modules/packagechooser.conf
+              $out/src/config/modules/packagechooser.conf \
+              $out/src/config/settings.conf \
+              $out/src/config/modules/scoot-location.conf
           '';
         };
       # Note the /src suffix: the package's src is the src/
@@ -160,9 +164,11 @@
             ${pkgs.python3}/bin/python3 ${./tests/patch_consistency.py} \
               ${./iso/target/flake.nix} \
               ${./iso/target/configuration.nix} \
+              ${./iso/target/flake.lock} \
               ${./nix/target-machine.nix} \
               ${./nix/calamares-patch.py} \
-              ${./nix/packagechooser-scoot.conf} && touch $out
+              ${./nix/packagechooser-scoot.conf} \
+              ${./nix/packagechooser-scoot-location.conf} && touch $out
           '';
         }
       );

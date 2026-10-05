@@ -7,7 +7,7 @@ installer."""
 import re
 import sys
 
-flake_path, config_path, mirror_path, patch_path, item_path = sys.argv[1:]
+flake_path, config_path, lock_path, mirror_path, patch_path, item_path, location_path = sys.argv[1:]
 
 failures = []
 
@@ -19,9 +19,11 @@ def check(condition: bool, message: str) -> None:
 
 flake = open(flake_path).read()
 config = open(config_path).read()
+lock = open(lock_path).read()
 mirror = open(mirror_path).read()
 patch = open(patch_path).read()
 item = open(item_path).read()
+location = open(location_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
 SCOOT_REV = "79aa76127d1670209e489ed08ff451056d95e932"
@@ -44,7 +46,21 @@ check(f"home-manager/{HM_REV}" in flake, "target flake.nix lost the pinned home-
 check("@@SYSTEM@@" in flake, "target flake.nix lost its @@SYSTEM@@ placeholder")
 check("nixosConfigurations.scoot" in flake, "target flake.nix lost nixosConfigurations.scoot")
 
+# Target flake.lock: the same revs as flake.nix, github-only, no
+# placeholders or path: overrides (it is written verbatim; the install
+# runs --no-write-lock-file so it stays pristine).
+import json as _json
+
+lock_data = _json.loads(lock)
+for _node in ("nixpkgs", "scoot", "home-manager"):
+    _locked = lock_data["nodes"][_node]["locked"]
+    check(_locked.get("type") == "github", f"target flake.lock node {_node} is not github-pinned")
+    check(_locked["rev"] in flake, f"target flake.lock rev {_locked['rev']} not in target flake.nix")
+check('"type": "path"' not in lock, "target flake.lock must not contain path: overrides")
+check("@@" not in lock, "target flake.lock must not contain placeholders")
+
 # Target configuration.nix: flake-style module with the desktop profile.
+check("{ config, pkgs, inputs, ... }:" in config, "target configuration.nix lost its flake-module header")
 check("{ config, pkgs, inputs, ... }:" in config, "target configuration.nix lost its flake-module header")
 check("inputs.scoot.nixosModules.scoot" in config, "target configuration.nix lost the scoot NixOS module import")
 check("inputs.scoot.nixosModules.scootbar" in config, "target configuration.nix lost the scootbar NixOS module import")
@@ -53,6 +69,9 @@ check("desktop.enable = true" in config, "target configuration.nix lost desktop.
 check("session.enable = true" in config, "target configuration.nix lost session.enable")
 check("greeter.enable = true" in config, "target configuration.nix lost greeter.enable")
 check("programs.scootbar.enable = true" in config, "target configuration.nix lost scootbar.enable")
+check("programs.nh" in config and "enable = true" in config, "target configuration.nix lost nh.enable")
+check('@@SCOOT_NH_FLAKE@@' in config, "target configuration.nix lost its @@SCOOT_NH_FLAKE@@ marker")
+check('"git"' in config or " git\n" in config, "target configuration.nix lost git for the nixos-config repo")
 check("services.qemuGuest.enable = true" in config, "target configuration.nix lost qemuGuest")
 check("services.qemuGuest.enable = true" in mirror, "mirror lost qemuGuest")
 check("environment.systemPackages" in config and "foot" in config, "target configuration.nix lost foot")
@@ -81,9 +100,16 @@ check("autoLogin" not in mirror, "mirror must never autologin")
 check("home-manager.users.scoot.programs.scoot" in mirror, "mirror lost the home-manager user profile")
 
 # Patch script carries every placeholder and the install mechanism.
-for token in ("@@SCOOT_HM_USER@@", "@@SCOOT_USERS@@", "@@SCOOT_LOOK@@", "HM_USER_STANZA", "USERS_STANZA"):
+for token in ("@@SCOOT_HM_USER@@", "@@SCOOT_USERS@@", "@@SCOOT_LOOK@@", "@@SCOOT_NH_FLAKE@@", "HM_USER_STANZA", "USERS_STANZA"):
     check(token in patch, f"patch script lost {token}")
 check("--flake" in patch and "--override-input" in patch, "patch script lost the flake install command")
+check('"--no-write-lock-file"' in patch, "patch script lost --no-write-lock-file (the installed lock must stay github-pinned)")
+check('"/home/" + scoot_cmd_user + "/nixos-config#scoot"' in patch, "patch script lost the home-folder install ref")
+check('"/etc/nixos#scoot"' in patch, "patch script lost the system-wide install ref")
+check('"scoot_lock_text"' in patch or "scoot_lock_text = " in patch, "patch script lost the embedded flake.lock")
+check("scoot-location.conf" in patch, "patch script lost the location page config")
+check("packagechooser@scoot-location" in patch, "patch script lost the location page sequence entry")
+check("packagechooser_scoot-location" in patch, "patch script lost the location GS key read")
 check("SCOOT_DEFAULT" in patch, "patch script lost the default-desktop constant")
 check('"scoot-moonrise"' in patch, "patch script lost the moonrise default")
 for item_id in SCOOT_IDS:
@@ -95,6 +121,14 @@ for anchor in ("host_env_process_output", "build-dir", "packagechooser_packagech
 # Desktop list items: exactly the four scoot looks, moonrise first.
 check("name: scoot" in item, "packagechooser item lost name: scoot")
 check(item.count("- id: scoot-") == 4, "packagechooser item should hold exactly the four scoot looks")
+
+# Location page: the two choices, home default, one sentence each.
+check("default: home" in location, "location page lost its home default")
+for _loc in ("home", "system"):
+    check(f"- id: {_loc}" in location, f"location page lost id: {_loc}")
+check("mode: required" in location, "location page lost mode: required")
+check("method: legacy" in location, "location page lost method: legacy")
+check("nh os switch" in location, "location page lost the rebuild instruction")
 
 if failures:
     print("patch-consistency FAILED:")

@@ -43,9 +43,17 @@
 
   programs.firefox.enable = true;
 
-  environment.systemPackages = with pkgs; [ foot ];
+  environment.systemPackages = with pkgs; [
+    foot
+    git
+  ];
 
   services.qemuGuest.enable = true;
+
+  programs.nh = {
+    enable = true;
+    flake = "/home/scoot/nixos-config";
+  };
 
   programs.scoot = {
     enable = true;
