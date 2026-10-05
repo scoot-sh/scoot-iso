@@ -66,23 +66,7 @@ in
 {
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-graphical-calamares.nix" ];
 
-  options.scootIso = {
-    targetFlake = lib.mkOption {
-      type = lib.types.path;
-      readOnly = true;
-      description = "The exact flake.nix the patched Calamares writes to the target.";
-    };
-    targetConfiguration = lib.mkOption {
-      type = lib.types.path;
-      readOnly = true;
-      description = "The exact configuration.nix template the patched Calamares writes to the target.";
-    };
-  };
-
   config = {
-    scootIso.targetFlake = ../iso/target/flake.nix;
-    scootIso.targetConfiguration = ../iso/target/configuration.nix;
-
     isoImage.edition = lib.mkDefault "scoot";
 
     nixpkgs.overlays = [

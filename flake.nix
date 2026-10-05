@@ -120,9 +120,14 @@
           iso = live.config.system.build.isoImage;
           # The exact target files the patched Calamares writes, as
           # store paths, so the QEMU test installs byte-for-byte what
-          # the GUI would write.
-          target-flake = live.config.scootIso.targetFlake;
-          target-configuration = live.config.scootIso.targetConfiguration;
+          # the GUI would write. (Plain file copies: packages must be
+          # derivations, and these pin the exact bytes the patch
+          # embeds.)
+          target-flake = nixpkgs.legacyPackages.${system}.runCommand "scoot-target-flake.nix" { }
+            "cp ${./iso/target/flake.nix} $out";
+          target-configuration =
+            nixpkgs.legacyPackages.${system}.runCommand "scoot-target-configuration.nix" { }
+              "cp ${./iso/target/configuration.nix} $out";
           calamares-ext-patched-src =
             mkPatchedExtSrc nixpkgs.legacyPackages.${system} system;
           default = live.config.system.build.isoImage;
