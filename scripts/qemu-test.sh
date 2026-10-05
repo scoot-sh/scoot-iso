@@ -264,39 +264,39 @@ echo "=== phase 1b: the welcome window ==="
 # `scoot msg windows` lists it, which also proves the compositor's IPC
 # answers on the live session.
 for _ in $(seq 1 24); do
-  if guest_exec 'pgrep -af "[f]irefox.*scoot-welcome" >/dev/null && echo FIREFOX-UP' 2>/dev/null | grep -q FIREFOX-UP; then break; fi
+  if guest_exec 'pgrep -af "[f]irefox --new-window" >/dev/null && echo FIREFOX-UP' 2>/dev/null | grep -q FIREFOX-UP; then break; fi
   sleep 5
 done
 echo "--- welcome spawn env (what scoot autostart children inherit) ---"
 guest_exec 'cat /tmp/scoot-welcome-env.txt' || true
 msg_ok=0
-for _ in $(seq 1 3); do
-  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock; su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows"'; then msg_ok=1; break; fi
+for _ in $(seq 1 24); do
+  if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock; [ -S "$SCOOT_SOCKET" ] && su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows"'; then msg_ok=1; break; fi
   sleep 5
 done
 [ "$msg_ok" = 1 ] || echo "MSG-WARN: live-session scoot msg never answered; headless check in phase 3c remains the hard IPC proof"
-echo "--- firefox probes (diagnostic; never fatal) ---"
+echo "--- browser probes (diagnostic; never fatal) ---"
 guest_exec '
-echo "--- firefox processes ---"; pgrep -af "[f]irefox" || true
-echo "--- firefox env ---"
-for pid in $(pgrep -f "[f]irefox.*scoot-welcome"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
+echo "--- browser processes ---"; pgrep -af "[f]irefox --new-window" || true
+echo "--- browser env ---"
+for pid in $(pgrep -f "[f]irefox --new-window"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|SCOOT_SOCKET|MOZ_|DBUS_SESSION)" || true; done
 echo "--- nixos home ---"; ls -la /home/nixos/ | head -20
 echo "--- mozilla dir ---"; ls -la /home/nixos/.mozilla/ 2>&1 || true
-echo "--- firefox --help (no profile needed) ---"; sudo -u nixos HOME=/home/nixos firefox --help 2>&1 | head -5 || true
-echo "--- firefox stderr from the session journal ---"; sudo -u nixos journalctl --user -b --no-pager 2>/dev/null | grep -iE "firefox|mozilla|profile|NS_ERROR" | head -20 || true
-echo "--- firefox manual launch with captured stderr ---"
+echo "--- browser --help (no profile needed) ---"; sudo -u nixos HOME=/home/nixos firefox --help 2>&1 | head -5 || true
+echo "--- browser stderr from the session journal ---"; sudo -u nixos journalctl --user -b --no-pager 2>/dev/null | grep -iE "firefox|mozilla|profile|NS_ERROR" | head -20 || true
+echo "--- crashes? ---"; coredumpctl list --no-pager 2>/dev/null | head -5 || true
+id nixos
+exit 0
+' || true
+echo "--- browser manual launch with captured stderr ---"
 guest_exec '
-pkill -f "[f]irefox.*scoot-welcome" || true
+pkill -f "[f]irefox --new-window" || true
 sleep 2
 rm -rf /home/nixos/.mozilla
 su -s /bin/sh nixos -c "HOME=/home/nixos WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 firefox --new-window file:///etc/scoot-welcome/index.html > /tmp/ff-manual.log 2>&1 &"
 sleep 25
 echo "--- .mozilla now ---"; ls -laR /home/nixos/.mozilla 2>&1 | head -20 || true
 echo "--- manual launch log ---"; head -40 /tmp/ff-manual.log || true
-exit 0
-' || true
-echo "--- crashes? ---"; coredumpctl list --no-pager 2>/dev/null | head -5 || true
-id nixos
 exit 0
 ' || true
 sleep 5 # let the welcome page paint
@@ -445,7 +445,7 @@ wait_ga
 sleep 30 # ReGreet should be up
 qmp screendump "{\"filename\": \"$WORKDIR/regreet.ppm\"}" >/dev/null
 echo "greeter screenshot: $WORKDIR/regreet.ppm"
-guest_exec 'systemctl is-active greetd && pgrep -af "cage|regreet" | head -5 && echo GREETER-OK'
+guest_exec 'systemctl is-active greetd && pgrep -af "[c]age|[r]egreet" | head -5 && echo GREETER-OK'
 # Type the password into ReGreet (best effort; screenshots show the outcome).
 # QMP send-key takes qcode names; password is [a-z0-9] by construction.
 type_into_greeter() {
