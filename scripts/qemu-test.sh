@@ -275,6 +275,15 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 guest_exec 'XDG_RUNTIME_DIR=/run/user/$(id -u nixos) scoot msg windows || sudo -u nixos XDG_RUNTIME_DIR=/run/user/$(id -u nixos) scoot msg windows' || true
+echo "--- TEMP DEBUG: firefox profile failure ---"
+guest_exec '
+echo "--- firefox env ---"
+for pid in $(pgrep -f "firefox.*scoot-welcome"); do echo "== $pid =="; tr '\0' '\n' < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
+echo "--- nixos home ---"; ls -la /home/nixos/ | head -20
+echo "--- mozilla dir ---"; ls -la /home/nixos/.mozilla/ 2>&1 || true
+id nixos
+exit 0
+'
 sleep 5 # let the welcome page paint
 qmp screendump "{\"filename\": \"$WORKDIR/welcome-window.ppm\"}" >/dev/null
 echo "welcome screenshot: $WORKDIR/welcome-window.ppm"
@@ -349,8 +358,10 @@ echo \"overrides: \$overrides\"
 ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 ip -o link show
 unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/etc/nixos#scoot --root /mnt --no-root-passwd --option build-dir /nix/var/nix/builds \$overrides' > /tmp/install.log 2>&1
-echo INSTALL-RC:\$?
+rc=\$?
+echo INSTALL-RC:\$rc
 tail -5 /tmp/install.log
+exit \$rc
 "
 guest_exec "nixos-enter --root /mnt -c \"echo '$TEST_USER:$TEST_PASS' | chpasswd\" && echo PASSWD-OK"
 guest_exec 'poweroff || halt -p'

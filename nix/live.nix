@@ -170,6 +170,11 @@ in
     environment.systemPackages = with pkgs; [
       foot
       welcomeLauncher
+      # The QEMU install test drives its installer-equivalence checks
+      # (template embedding, target render, override extraction) with
+      # python3 inside the guest; stage it on the ISO rather than
+      # reaching the network.
+      python3
     ];
 
     environment.etc."scoot-welcome/index.html".source = ../iso/welcome/index.html;
