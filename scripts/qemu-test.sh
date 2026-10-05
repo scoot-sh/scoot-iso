@@ -311,7 +311,7 @@ sleep 5
 scoot msg version
 scoot msg outputs
 scoot msg windows
-scoot msg screenshot --output 0 --out /tmp/installed-scoot.png && echo SCREENSHOT-OK
+scoot msg screenshot --out /tmp/installed-scoot.png && echo SCREENSHOT-OK
 CHEOF
 sed -i "s|__RUNTIME__|\$XDG_RUNTIME_DIR|" /tmp/scoot-check.sh
 chown $TEST_USER:users /tmp/scoot-check.sh
@@ -340,40 +340,7 @@ print("screenshot saved:", out)
 EOF
 stop_vm
 # Convert QMP's PPM screendumps to PNG for the workflow artifacts and
-# the README (stdlib only: P6 parse, raw RGB rows, no filter, zlib).
-python3 - "$WORKDIR" <<'EOF'
-import struct, sys, zlib
-from pathlib import Path
-def ppm_to_png(ppm: Path) -> None:
-    data = ppm.read_bytes()
-    assert data[:2] == b"P6", f"not a P6 PPM: {ppm}"
-    tail, pos, got = data[2:], 0, []
-    while len(got) < 3:
-        while tail[pos:pos + 1] in b" \t\r\n":
-            pos += 1
-        if tail[pos:pos + 1] == b"#":
-            pos = tail.index(b"\n", pos) + 1
-            continue
-        end = pos
-        while tail[end:end + 1] not in b" \t\r\n":
-            end += 1
-        got.append(tail[pos:end])
-        pos = end
-    w, h, vmax = int(got[0]), int(got[1]), int(got[2])
-    assert vmax == 255, f"maxval {vmax} unsupported: {ppm}"
-    raster = tail[pos + 1:]
-    assert len(raster) >= w * h * 3, f"short raster in {ppm}"
-    raster = raster[:w * h * 3]
-    raw = b"".join(b"\x00" + raster[y * w * 3:(y + 1) * w * 3] for y in range(h))
-    def chunk(typ: bytes, payload: bytes) -> bytes:
-        c = struct.pack(">I", len(payload)) + typ + payload
-        return c + struct.pack(">I", zlib.crc32(typ + payload) & 0xFFFFFFFF)
-    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-           + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
-    out = ppm.with_suffix(".png")
-    out.write_bytes(png)
-    print(f"converted {ppm.name} -> {out.name} ({w}x{h})")
-for ppm in sorted(Path(sys.argv[1]).glob("*.ppm")):
-    ppm_to_png(ppm)
-EOF
+# the README (stdlib only; idempotent, so the workflow's fallback step
+# re-running it after a failure is harmless).
+python3 "$(dirname "$0")/ppm-to-png.py" "$WORKDIR"
 echo "=== qemu-test done; artifacts in $WORKDIR ==="

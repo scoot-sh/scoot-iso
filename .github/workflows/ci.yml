@@ -115,6 +115,9 @@ jobs:
             --target-config "$(readlink -f result-target-config)" \
             --workdir /tmp/scoot-iso-qemu \
             --user kish --password testpass123
+      - name: convert screenshots (fallback, always runs)
+        if: always()
+        run: python3 scripts/ppm-to-png.py /tmp/scoot-iso-qemu
       - name: upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4
