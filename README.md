@@ -44,19 +44,26 @@ Boot the stick in UEFI mode.
 
 - A scoot session straight after boot (no login prompt): full desktop
   profile (`programs.scoot.desktop.enable = true`) with the
-  **vinyl-sunset** look, the scootbar status bar (themed by the look),
-  and Firefox.
+  **moonrise** look, its night-sky wallpaper, the scootbar status bar
+  (themed by the look), and Firefox.
 - A welcome window on first login: what scoot is, the essential keys,
-  Install/Try pointers and doc links, themed like the look. It reopens
+  Install/Try pointers and doc links, designed in moonrise. It reopens
   anytime from the **Welcome to scoot** launcher or the bar's
   **Welcome** button. (Implementation note: it is a styled local page,
   `file:///etc/scoot-welcome/index.html`, opened in Firefox — zero new
   binaries on an ISO where every megabyte counts toward the 2 GB
   release-asset cap, CSS theming straight from the look palette, and
   links that just work.)
-- Calamares, with **scoot** in the Desktop list, selected by default.
+- Calamares, with four **scoot** entries in the Desktop list (one per
+  look: moonrise, music-desk, radial-burst, vinyl-sunset),
+  **scoot (moonrise)** selected by default.
 - Autologin here is live-media-only (standard for installer ISOs). The
-  installed system never autologins.
+  installed system never autologins. The live session also never locks
+  or blanks the screen (the profile's idle policy is switched back off
+  for live media only: an install outlasts every idle timeout, and a
+  locked live session would stall Calamares mid-write); the installed
+  system keeps the profile default — dim at 2 minutes, lock at 4,
+  screens off at 5.
 
 ## What the installer writes
 
@@ -92,10 +99,13 @@ dropping scoot.
 
 ## How to pick another look
 
-The ISO and the installer default to `vinyl-sunset`. The other looks
-shipped by the pinned scoot are `music-desk` (light) and
-`radial-burst` (dark); a fourth, `moonrise`, is in flight upstream and
-will be offered here once the pinned scoot ships it.
+The ISO and the installer default to `moonrise`. The other looks
+shipped by the pinned scoot are `music-desk` (light),
+`radial-burst` (dark) and `vinyl-sunset` (warm dark, no wallpaper image
+ships for it: its illustration's license forbids passing it on
+standalone, so the session shows its flat background color). In the
+Calamares Desktop list each look is its own **scoot** entry, so the
+choice happens at install time; moonrise is pre-selected.
 
 On an installed system, set the look in both halves and rebuild:
 
@@ -111,6 +121,21 @@ nixos-rebuild switch --flake /etc/nixos#scoot
 To try a look on the live session before installing, the same two
 options (system `programs.scoot.desktop.look` in `nix/live.nix` plus
 the welcome/config colors) are the only place the default lives.
+
+## Wallpaper credit
+
+The moonrise wallpaper (`docs/assets/wallpapers/moonrise.png` in the
+pinned scoot, shown by the live session, the installed default and the
+welcome page's hero banner) is &ldquo;Silhouetted trees under moon and
+stars&rdquo; by saatvik 5554
+([@saatvik_reddy_suravaram](https://unsplash.com/@saatvik_reddy_suravaram)),
+published on Unsplash
+([illustration page](https://unsplash.com/illustrations/silhouetted-trees-under-moon-and-stars-jwBJOj6gakI)).
+It is free to use under the [Unsplash License](https://unsplash.com/license),
+which allows downloading, copying, modifying and distributing it,
+including commercially and without attribution. It is not part of scoot's
+MIT-licensed code and stays under the Unsplash License wherever scoot-iso
+is redistributed; see scoot's `NOTICE`.
 
 ## ISO size and hosting
 

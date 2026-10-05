@@ -6,19 +6,20 @@
 <title>Welcome to scoot</title>
 <style>
   :root {
-    /* vinyl-sunset look (scoot nix/modules/desktop.nix): */
-    --bg: #271A1F;
-    --fg: #F1E3C6;
-    --accent: #E59560;
-    --hover: #FDC58B;
-    --dim: #604F50;
-    --urgent: #C76B47;
-    --ring-inactive: #423F51;
+    /* moonrise look (scoot docs/examples/moonrise): */
+    --bg: #2B3648;
+    --bg-deep: #1d2634;
+    --fg: #F6EEDC;
+    --accent: #FFA45C;
+    --hover: #FFD54A;
+    --dim: #9C8B95;
+    --urgent: #E87F6A;
+    --ring-inactive: #5E4B5B;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    background: var(--bg);
+    background: var(--bg-deep);
     color: var(--fg);
     font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
   }
@@ -26,6 +27,15 @@
   header h1 { font-size: 2.4rem; margin: 0 0 0.2em; letter-spacing: 0.01em; }
   header h1 .accent { color: var(--accent); }
   header p.sub { color: var(--hover); font-size: 1.1rem; margin-top: 0; }
+  figure.hero { margin: 1.5rem 0 0; }
+  figure.hero img {
+    display: block;
+    width: 100%;
+    border-radius: 14px;
+    border: 1px solid var(--ring-inactive);
+  }
+  figure.hero figcaption { color: var(--dim); font-size: 0.85rem; margin-top: 0.5em; }
+  figure.hero figcaption a { color: var(--dim); }
   section { margin-top: 2.5rem; }
   h2 { font-size: 1.25rem; color: var(--accent); border-bottom: 1px solid var(--ring-inactive); padding-bottom: 0.3em; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
@@ -33,9 +43,9 @@
     border: 1px solid var(--ring-inactive);
     border-radius: 12px;
     padding: 1.1rem 1.2rem;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(246, 238, 220, 0.03);
   }
-  .card h3 { margin: 0 0 0.4em; font-size: 1.05rem; }
+  .card h3 { margin: 0 0 0.4em; font-size: 1.05rem; color: var(--hover); }
   .card p { margin: 0.4em 0; }
   table.keys { border-collapse: collapse; width: 100%; margin-top: 0.8rem; }
   table.keys td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--ring-inactive); vertical-align: top; }
@@ -52,7 +62,7 @@
   }
   code.cmd {
     display: block;
-    background: #1b1216;
+    background: var(--bg-deep);
     border: 1px solid var(--ring-inactive);
     border-radius: 8px;
     padding: 0.6em 0.8em;
@@ -74,6 +84,10 @@
   <header>
     <h1>Welcome to <span class="accent">scoot</span></h1>
     <p class="sub">A lightweight, fast and beautiful scrolling-tiling Wayland compositor that runs without a GPU.</p>
+    <figure class="hero">
+      <img src="moonrise.png" alt="The moonrise wallpaper: black tree silhouettes under a huge amber disc in a night sky fading from slate navy to dusty rose">
+      <figcaption>This session wears the <strong>moonrise</strong> look. Wallpaper: &ldquo;Silhouetted trees under moon and stars&rdquo; by <a href="https://unsplash.com/@saatvik_reddy_suravaram">saatvik 5554</a> on <a href="https://unsplash.com/illustrations/silhouetted-trees-under-moon-and-stars-jwBJOj6gakI">Unsplash</a>, free to use under the <a href="https://unsplash.com/license">Unsplash License</a>.</figcaption>
+    </figure>
   </header>
 
   <section>
@@ -81,7 +95,7 @@
     <div class="cards">
       <div class="card">
         <h3>Graphical install</h3>
-        <p>Click the <strong>Install</strong> icon on the desktop (Calamares), pick <strong>scoot</strong> on the Desktop page, and reboot into it.</p>
+        <p>Click the <strong>Install</strong> icon on the desktop (Calamares), pick a <strong>scoot</strong> entry on the Desktop page &mdash; one per look, <strong>moonrise</strong> selected by default &mdash; and reboot into it.</p>
       </div>
       <div class="card">
         <h3>From a terminal</h3>
@@ -89,7 +103,7 @@
         <code class="cmd">sudo calamares</code>
       </div>
     </div>
-    <p class="note">The installed system boots to a ReGreet login screen &mdash; it never autologins. Your live session's autologin exists only on this ISO.</p>
+    <p class="note">The installed system boots to a ReGreet login screen &mdash; it never autologins. Your live session's autologin exists only on this ISO. The installed system also locks after 4 idle minutes (dim at 2, screens off at 5); this live session never locks or blanks, so an install is never interrupted.</p>
   </section>
 
   <section>
@@ -122,7 +136,7 @@
       </div>
       <div class="card">
         <h3>Change the look</h3>
-        <p>This session wears <strong>vinyl-sunset</strong>. The installed system can switch to <strong>music-desk</strong> or <strong>radial-burst</strong> with one option:</p>
+        <p>This session wears <strong>moonrise</strong>. The installed system can switch to <strong>music-desk</strong>, <strong>radial-burst</strong> or <strong>vinyl-sunset</strong> with one option:</p>
         <code class="cmd">desktop.look = "music-desk";</code>
       </div>
     </div>
@@ -140,7 +154,7 @@
   </section>
 
   <footer>
-    <p>scoot-iso live session &middot; vinyl-sunset look &middot; autologin is live-media-only; installed systems greet with ReGreet.</p>
+    <p>scoot-iso live session &middot; moonrise look &middot; autologin is live-media-only; installed systems greet with ReGreet. Wallpaper: &ldquo;Silhouetted trees under moon and stars&rdquo; by saatvik 5554, Unsplash (<a href="https://unsplash.com/license">Unsplash License</a>).</p>
   </footer>
 </main>
 </body>
