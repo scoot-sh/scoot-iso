@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome to scoot</title>
+<style>
+  :root {
+    /* vinyl-sunset look (scoot nix/modules/desktop.nix): */
+    --bg: #271A1F;
+    --fg: #F1E3C6;
+    --accent: #E59560;
+    --hover: #FDC58B;
+    --dim: #604F50;
+    --urgent: #C76B47;
+    --ring-inactive: #423F51;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 48px 24px 64px; }
+  header h1 { font-size: 2.4rem; margin: 0 0 0.2em; letter-spacing: 0.01em; }
+  header h1 .accent { color: var(--accent); }
+  header p.sub { color: var(--hover); font-size: 1.1rem; margin-top: 0; }
+  section { margin-top: 2.5rem; }
+  h2 { font-size: 1.25rem; color: var(--accent); border-bottom: 1px solid var(--ring-inactive); padding-bottom: 0.3em; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
+  .card {
+    border: 1px solid var(--ring-inactive);
+    border-radius: 12px;
+    padding: 1.1rem 1.2rem;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .card h3 { margin: 0 0 0.4em; font-size: 1.05rem; }
+  .card p { margin: 0.4em 0; }
+  table.keys { border-collapse: collapse; width: 100%; margin-top: 0.8rem; }
+  table.keys td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--ring-inactive); vertical-align: top; }
+  table.keys td:first-child { width: 42%; }
+  kbd {
+    display: inline-block;
+    background: var(--ring-inactive);
+    color: var(--fg);
+    border-radius: 6px;
+    padding: 0.1em 0.55em;
+    margin: 0.1em 0.15em 0.1em 0;
+    font: 0.85rem/1.6 ui-monospace, monospace;
+    white-space: nowrap;
+  }
+  code.cmd {
+    display: block;
+    background: #1b1216;
+    border: 1px solid var(--ring-inactive);
+    border-radius: 8px;
+    padding: 0.6em 0.8em;
+    margin-top: 0.5em;
+    font: 0.9rem/1.5 ui-monospace, monospace;
+    color: var(--hover);
+    overflow-x: auto;
+  }
+  a { color: var(--accent); }
+  a:hover { color: var(--hover); }
+  ul.links { columns: 2; column-gap: 2rem; }
+  ul.links li { break-inside: avoid; margin-bottom: 0.4em; }
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.9rem; }
+  .note { border-left: 3px solid var(--accent); padding-left: 1em; color: var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Welcome to <span class="accent">scoot</span></h1>
+    <p class="sub">A lightweight, fast and beautiful scrolling-tiling Wayland compositor that runs without a GPU.</p>
+  </header>
+
+  <section>
+    <h2>Install scoot</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Graphical install</h3>
+        <p>Click the <strong>Install</strong> icon on the desktop (Calamares), pick <strong>scoot</strong> on the Desktop page, and reboot into it.</p>
+      </div>
+      <div class="card">
+        <h3>From a terminal</h3>
+        <p>On this live session, the installer is already on your PATH:</p>
+        <code class="cmd">sudo calamares</code>
+      </div>
+    </div>
+    <p class="note">The installed system boots to a ReGreet login screen &mdash; it never autologins. Your live session's autologin exists only on this ISO.</p>
+  </section>
+
+  <section>
+    <h2>Essential keys</h2>
+    <p>The full default map ships in the installed docs; these are the ones to learn first. The <kbd>super</kbd> key is usually the OS/Windows key.</p>
+    <table class="keys">
+      <tr><td><kbd>super</kbd> + <kbd>Return</kbd></td><td>Open a terminal</td></tr>
+      <tr><td><kbd>super</kbd> + <kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd></td><td>Focus column left / window down / window up / column right</td></tr>
+      <tr><td><kbd>super</kbd> + <kbd>shift</kbd> + <kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd></td><td>Move the focused column or window</td></tr>
+      <tr><td><kbd>super</kbd> + <kbd>r</kbd></td><td>Cycle the focused column's width</td></tr>
+      <tr><td><kbd>super</kbd> + <kbd>f</kbd></td><td>Toggle fullscreen</td></tr>
+      <tr><td><kbd>super</kbd> + <kbd>q</kbd></td><td>Close the focused window</td></tr>
+      <tr><td><kbd>super</kbd> + <kbd>1</kbd> &hellip; <kbd>9</kbd></td><td>Jump to workspace 1&ndash;9 (<kbd>shift</kbd> moves the window with you)</td></tr>
+      <tr><td><kbd>super</kbd> + <kbd>comma</kbd> / <kbd>period</kbd></td><td>Focus output 1 / 2</td></tr>
+      <tr><td><kbd>super</kbd> + <kbd>shift</kbd> + <kbd>e</kbd></td><td>Quit the session</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Try it</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Open windows</h3>
+        <p>Press <kbd>super</kbd> + <kbd>Return</kbd> a few times: each terminal lands in a scrolling column. <kbd>super</kbd> + <kbd>h</kbd>/<kbd>l</kbd> scrolls between them.</p>
+      </div>
+      <div class="card">
+        <h3>Ask the compositor</h3>
+        <p>Everything scriptable goes through IPC:</p>
+        <code class="cmd">scoot msg --help</code>
+      </div>
+      <div class="card">
+        <h3>Change the look</h3>
+        <p>This session wears <strong>vinyl-sunset</strong>. The installed system can switch to <strong>music-desk</strong> or <strong>radial-burst</strong> with one option:</p>
+        <code class="cmd">desktop.look = "music-desk";</code>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Docs</h2>
+    <ul class="links">
+      <li><a href="https://github.com/scoot-sh/scoot">scoot source and README</a></li>
+      <li><a href="https://github.com/scoot-sh/scoot/blob/main/docs/nix.md">NixOS and home-manager guide</a></li>
+      <li><a href="https://github.com/scoot-sh/scoot/blob/main/docs/configuration.md">Configuration reference</a></li>
+      <li><a href="https://github.com/scoot-sh/scoot/blob/main/docs/scootbar/cli.md">Status bar reference</a></li>
+    </ul>
+    <p>This page lives at <code>file:///etc/scoot-welcome/index.html</code> &mdash; reopen it anytime from the <strong>Welcome to scoot</strong> launcher or the bar's <strong>Welcome</strong> button.</p>
+  </section>
+
+  <footer>
+    <p>scoot-iso live session &middot; vinyl-sunset look &middot; autologin is live-media-only; installed systems greet with ReGreet.</p>
+  </footer>
+</main>
+</body>
+</html>
