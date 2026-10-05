@@ -306,7 +306,7 @@ for pid in $pkill_out; do if [ "$pid" != "$$" ]; then kill "$pid" || true; fi; d
 sleep 2
 rm -rf /home/nixos/.mozilla
 firefox_wrapper=$(command -v firefox)
-firefox_real=$(grep -Eo "/nix/store/[^ \"-]*lib/firefox/firefox" "$firefox_wrapper" | head -1)
+firefox_real=$(grep -Eo "/nix/store/[^ \"]*lib/firefox/firefox" "$firefox_wrapper" | head -1)
 ls -la "$firefox_real"
 su -s /bin/sh nixos -c "env -i HOME=/home/nixos WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 PATH=/run/current-system/sw/bin:/usr/bin:/bin $firefox_real --new-window file:///etc/scoot-welcome/index.html > /tmp/ff-direct.log 2>&1 &"
 sleep 25
