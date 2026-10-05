@@ -7,10 +7,10 @@
   # verified 2026-10-05 against the pinned nixpkgs source).
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe";
-    # Pinned to scoot main at 39c3a5e (post-#432, so
-    # `programs.scoot.desktop` with the look registry exists; idle/lock
-    # #435 is still in flight and its slots stay inert until it merges).
-    scoot.url = "github:scoot-sh/scoot/39c3a5ea131f956de4207522273c0946bebe2f1d";
+    # Pinned to scoot main at 79aa76127 (post-#435 idle/lock, so
+    # the installed system dims/locks/sleeps panels; post-#437
+    # moonrise, so the default look ships a real wallpaper).
+    scoot.url = "github:scoot-sh/scoot/79aa76127d1670209e489ed08ff451056d95e932";
     # Pinned to home-manager master at f53f3267 (2026-10-05), for the
     # installed user's desktop-profile half.
     home-manager.url = "github:nix-community/home-manager/f53f3267f5d009dd8f99443505e609389d7ff267";
