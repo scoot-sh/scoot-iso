@@ -189,40 +189,6 @@ wait_ga() {
     echo "=== firefox: process env ==="; for pid in $(pgrep -f "firefox.*scoot-welcome"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
     echo "=== firefox: passwd ==="; getent passwd nixos
   ' || echo "SSH dump failed"
-  echo "--- TEMP DEBUG: qga transport experiment ---"
-  python3 - "$GASOCK" <<'EOF' || echo "transport experiment failed"
-import base64, json, socket, sys, time
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(20)
-s.connect(sys.argv[1])
-f = s.makefile("rwb")
-def transact(obj):
-    data = json.dumps(obj).encode() + b"\n"
-    print(f"C2S {len(data)} bytes: {data[:100]!r}", flush=True)
-    f.write(data); f.flush()
-    while True:
-        line = f.readline()
-        if not line: raise SystemExit("closed")
-        line = line.lstrip(b"\xff")
-        try: msg = json.loads(line)
-        except ValueError: continue
-        if "return" in msg or "error" in msg: return msg
-print("sync:", transact({"execute": "guest-sync-delimited", "arguments": {"id": 424242}}))
-rA = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "echo ARGV-OK"], "capture-output": True}})
-rB = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | /bin/sh"], "input-data": base64.b64encode(b"echo STDIN-OK").decode(), "capture-output": True}})
-print("A submit:", rA)
-print("B submit:", rB)
-pids = [("A", rA["return"]["pid"]), ("B", rB["return"]["pid"])]
-done = set()
-for _ in range(30):
-    time.sleep(2)
-    for tag, pid in pids:
-        if (tag, pid) in done: continue
-        r = transact({"execute": "guest-exec-status", "arguments": {"pid": pid}})
-        print(tag, "status:", r, flush=True)
-        if r.get("return", {}).get("exited"): done.add((tag, pid))
-    if len(done) == 2: break
-EOF
   return 1
 }
 
@@ -281,6 +247,40 @@ stop_vm() {
 echo "=== phase 1: boot live ISO ==="
 start_vm d
 wait_ga
+echo "--- TEMP DEBUG: qga transport experiment ---"
+python3 - "$GASOCK" <<'EOF' || echo "transport experiment failed"
+import base64, json, socket, sys, time
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(20)
+s.connect(sys.argv[1])
+f = s.makefile("rwb")
+def transact(obj):
+    data = json.dumps(obj).encode() + b"\n"
+    print(f"C2S {len(data)} bytes: {data[:100]!r}", flush=True)
+    f.write(data); f.flush()
+    while True:
+        line = f.readline()
+        if not line: raise SystemExit("closed")
+        line = line.lstrip(b"\xff")
+        try: msg = json.loads(line)
+        except ValueError: continue
+        if "return" in msg or "error" in msg: return msg
+print("sync:", transact({"execute": "guest-sync-delimited", "arguments": {"id": 424242}}))
+rA = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "echo ARGV-OK"], "capture-output": True}})
+rB = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | /bin/sh"], "input-data": base64.b64encode(b"echo STDIN-OK").decode(), "capture-output": True}})
+print("A submit:", rA)
+print("B submit:", rB)
+pids = [("A", rA["return"]["pid"]), ("B", rB["return"]["pid"])]
+done = set()
+for _ in range(30):
+    time.sleep(2)
+    for tag, pid in pids:
+        if (tag, pid) in done: continue
+        r = transact({"execute": "guest-exec-status", "arguments": {"pid": pid}})
+        print(tag, "status:", r, flush=True)
+        if r.get("return", {}).get("exited"): done.add((tag, pid))
+    if len(done) == 2: break
+EOF
 sleep 20 # let the scoot session settle
 qmp screendump "{\"filename\": \"$WORKDIR/live-session.ppm\"}" >/dev/null
 echo "live screenshot: $WORKDIR/live-session.ppm"
