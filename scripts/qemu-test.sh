@@ -290,7 +290,8 @@ exit 0
 ' || true
 echo "--- browser manual launch with captured stderr ---"
 guest_exec '
-pkill -f "[f]irefox --new-window" || true
+pkill_out=$(pgrep -f "[f]irefox --new-window" || true)
+for pid in $pkill_out; do if [ "$pid" != "$$" ]; then kill "$pid" || true; fi; done
 sleep 2
 rm -rf /home/nixos/.mozilla
 su -s /bin/sh nixos -c "HOME=/home/nixos WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 firefox --new-window file:///etc/scoot-welcome/index.html > /tmp/ff-manual.log 2>&1 &"
@@ -345,13 +346,20 @@ for m in paths:
     assert os.path.exists(m), "baked override path missing from live store: " + m
     print("override path present:", m)
 q = chr(34)
+start = src.find(q + "--override-input" + q + ",")
+assert start >= 0, "override block not found in shipped main.py"
+toks = []
+pos = start
+while len(toks) < 9:
+    a = src.find(q, pos)
+    b = src.find(q, a + 1)
+    assert a >= 0 and b > a, "override block truncated"
+    toks.append(src[a + 1:b])
+    pos = b + 1
 flags = []
-for name in ("nixpkgs", "scoot", "home-manager"):
-    i = src.find(q + name + q + ",")
-    assert i >= 0, "override input missing from shipped main.py: " + name
-    j = src.find("path:/nix/store/", i)
-    k = src.find(q, j)
-    flags += ["--override-input", name, src[j:k]]
+for n in range(0, 9, 3):
+    assert toks[n] == "--override-input", "override triple misaligned: " + toks[n]
+    flags += ["--override-input", toks[n + 1], toks[n + 2]]
 open("/tmp/iso-override-flags", "w").write(" ".join(flags))
 print("override flags:", " ".join(flags))
 print("EMBEDDING-OK")
