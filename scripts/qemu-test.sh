@@ -268,9 +268,12 @@ def transact(obj):
 print("sync:", transact({"execute": "guest-sync-delimited", "arguments": {"id": 424242}}))
 rA = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "echo ARGV-OK"], "capture-output": True}})
 rB = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | /bin/sh"], "input-data": base64.b64encode(b"echo STDIN-OK").decode(), "capture-output": True}})
+big = base64.b64encode(b"A" * 600).decode()
+rC = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | wc -c"], "input-data": big, "capture-output": True}})
 print("A submit:", rA)
 print("B submit:", rB)
-pids = [("A", rA["return"]["pid"]), ("B", rB["return"]["pid"])]
+print("C submit:", rC)
+pids = [("A", rA["return"]["pid"]), ("B", rB["return"]["pid"]), ("C", rC["return"]["pid"])]
 done = set()
 for _ in range(30):
     time.sleep(2)
@@ -279,7 +282,7 @@ for _ in range(30):
         r = transact({"execute": "guest-exec-status", "arguments": {"pid": pid}})
         print(tag, "status:", r, flush=True)
         if r.get("return", {}).get("exited"): done.add((tag, pid))
-    if len(done) == 2: break
+    if len(done) == 3: break
 EOF
 sleep 20 # let the scoot session settle
 qmp screendump "{\"filename\": \"$WORKDIR/live-session.ppm\"}" >/dev/null
