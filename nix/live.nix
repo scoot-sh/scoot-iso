@@ -64,6 +64,14 @@ in
   config = {
     isoImage.edition = lib.mkDefault "scoot";
 
+    # No Plymouth splash: on the hosted-runner QEMU (virtio-gpu, KVM) the
+    # boot hung in sysinit at "Show Plymouth Boot Screen" (identical
+    # frames 11 minutes apart, guest agent never starting because
+    # sysinit never finished), while installer media has no use for a
+    # splash to begin with. Text console stays visible instead, which is
+    # also what the QEMU test screenshots to diagnose boot problems.
+    boot.plymouth.enable = lib.mkForce false;
+
     nixpkgs.overlays = [
       scoot.overlays.default
       calamaresOverlay
