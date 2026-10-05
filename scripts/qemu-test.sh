@@ -327,7 +327,7 @@ PYEOF
 '
 
 echo "=== phase 2: unattended install, network cut ==="
-guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && mount /dev/vda2 /mnt && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && nixos-generate-config --root /mnt && echo PARTITION-OK'
+guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && partx -u /dev/vda && udevadm settle && lsblk -f /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && mount /dev/vda2 /mnt && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && nixos-generate-config --root /mnt && echo PARTITION-OK'
 # Render the target files from the SHIPPED main.py's embedded templates
 # (extracted exactly as the patch wrote them, then substituted with the
 # writer's own semantics for the default choice: scoot-moonrise in the

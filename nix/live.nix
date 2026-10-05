@@ -19,9 +19,14 @@ let
   scootPkgs = scoot.packages.${system};
 
   # First-login welcome: opens once per live boot, always reachable
-  # later via the launcher entry and the bar's Welcome button.
+  # later via the launcher entry and the bar's Welcome button. HOME/USER
+  # are exported explicitly: the greetd initial session arrives with a
+  # near-empty environment (observed: firefox inherits no HOME and fails
+  # with "profile cannot be loaded"), and the welcome browser needs HOME
+  # to create its profile.
   welcomeFirstRun = pkgs.writeShellScript "scoot-welcome-first-run" ''
     set -eu
+    export HOME=/home/nixos USER=nixos LOGNAME=nixos
     flag="$HOME/.cache/scoot-iso/welcomed"
     if [ ! -f "$flag" ]; then
       mkdir -p "$(dirname "$flag")"
@@ -156,6 +161,9 @@ in
     # (greetd/src/config/mod.rs: "default_session contains no command"),
     # even though the initial-session path never runs it; agreety is the
     # honest fallback (a text greeter that would start the same session).
+    # HOME/USER/LOGNAME ride on the command because the initial session
+    # arrives with a near-empty environment, and everything spawned in
+    # the session (terminal, installer, browser) needs HOME.
     services.greetd = {
       enable = true;
       settings.default_session = {
@@ -163,7 +171,7 @@ in
       };
       settings.initial_session = {
         user = "nixos";
-        command = "${scootPkgs.scoot}/bin/scoot-session";
+        command = "${pkgs.coreutils}/bin/env HOME=/home/nixos USER=nixos LOGNAME=nixos ${scootPkgs.scoot}/bin/scoot-session";
       };
     };
 
