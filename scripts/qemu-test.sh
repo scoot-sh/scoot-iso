@@ -80,47 +80,83 @@ print(json.dumps(cmd({"execute": name, "arguments": params})))
 EOF
 }
 
-# guest_exec <shell-command...>: run via qemu-ga as root, poll, print output.
+# Guest control goes DIRECTLY over the chardev socket ($GASOCK), not
+# through QMP guest-* commands: on these runners QMP answers
+# query-status/screendump/send-key fine, but QMP guest-ping never gets
+# a reply even with the agent up, the virtio port bound and KVM on
+# (proven over three runs), while the identical ping sent straight over
+# this socket answers {"return": {}} instantly. So the script speaks the
+# qemu-ga protocol itself (stdlib python): guest-sync-delimited framing
+# per connection, guest-exec, then guest-exec-status polling. QMP stays
+# for monitor commands only (status, screendump, send-key, quit).
+qga() {
+  python3 - "$GASOCK" "$@" <<'EOF'
+import base64, json, socket, sys, time
+path, args = sys.argv[1], sys.argv[2:]
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(30)
+s.connect(path)
+f = s.makefile("rwb")
+def transact(obj):
+    f.write(json.dumps(obj).encode() + b"\n"); f.flush()
+    while True:
+        line = f.readline()
+        if not line:
+            raise SystemExit("qga socket closed mid-command")
+        line = line.lstrip(b"\xff")  # guest-sync-delimited marker
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue  # stray async event; keep reading
+        if "return" in msg or "error" in msg:
+            return msg
+syncid = 9871
+r = transact({"execute": "guest-sync-delimited", "arguments": {"id": syncid}})
+if r.get("return") != syncid:
+    raise SystemExit(f"qga sync failed: {r}")
+mode = args[0]
+if mode == "ping":
+    r = transact({"execute": "guest-ping"})
+    print(json.dumps(r))
+elif mode == "exec":
+    import os
+    b64 = args[1]
+    r = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | /bin/sh"], "input-data": b64, "capture-output": True}})
+    if "error" in r:
+        raise SystemExit(f"guest-exec refused: {r}")
+    pid = r["return"]["pid"]
+    for _ in range(900):
+        r = transact({"execute": "guest-exec-status", "arguments": {"pid": pid}})
+        if "error" in r:
+            raise SystemExit(f"guest-exec-status refused: {r}")
+        ret = r["return"]
+        if ret.get("exited"):
+            print("rc:", ret.get("exitcode"))
+            o = ret.get("out-data")
+            if o:
+                sys.stdout.write(base64.b64decode(o).decode(errors="replace"))
+            e = ret.get("err-data")
+            if e:
+                sys.stderr.write(base64.b64decode(e).decode(errors="replace"))
+            sys.exit(ret.get("exitcode", 1))
+        time.sleep(2)
+    raise SystemExit("guest-exec timed out")
+EOF
+}
+
+# guest_exec <shell-command>: run via qemu-ga as root, poll, print output.
 guest_exec() {
   local script="$1"
   local b64
   b64=$(printf '%s' "$script" | base64 -w0)
-  local pid
-  pid=$(python3 - "$QMP" "$b64" <<'EOF'
-import json, socket, sys
-path, b64 = sys.argv[1], sys.argv[2]
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.connect(path)
-f = s.makefile("rwb")
-f.readline()
-def cmd(obj):
-    f.write(json.dumps(obj).encode() + b"\n"); f.flush()
-    while True:
-        msg = json.loads(f.readline())
-        if "return" in msg or "error" in msg: return msg
-cmd({"execute": "qmp_capabilities"})
-r = cmd({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | /bin/sh"], "input-data": b64, "capture-output": True}})
-print(r["return"]["pid"])
-EOF
-)
-  for _ in $(seq 1 300); do
-    out=$(qmp guest-exec-status "{\"pid\": $pid}")
-    if echo "$out" | grep -q '"exited": true'; then
-      echo "$out" | python3 -c 'import base64,json,sys; r=json.load(sys.stdin)["return"]; print("rc:", r.get("exitcode")); o=r.get("out-data"); print(base64.b64decode(o).decode(errors="replace") if o else ""); e=r.get("err-data"); sys.stderr.write(base64.b64decode(e).decode(errors="replace") if e else "")'
-      rc=$(echo "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["return"].get("exitcode", 1))')
-      return "$rc"
-    fi
-    sleep 2
-  done
-  echo "guest-exec timed out" >&2
-  return 1
+  qga exec "$b64"
 }
 
 wait_ga() {
   local n=0
   for _ in $(seq 1 150); do
     n=$((n + 1))
-    if qmp guest-ping '{}' 2>/dev/null | grep -q '"return"'; then return 0; fi
+    if qga ping 2>/dev/null | grep -q '"return": {}'; then return 0; fi
     if [ $((n % 12)) -eq 0 ]; then echo "still waiting for guest agent (${n}x5s)..."; qmp query-status '{}' 2>/dev/null || echo "QMP unreachable"; qmp screendump "{\"filename\": \"$WORKDIR/boot-progress-$n.ppm\"}" >/dev/null 2>&1 || echo "progress screendump failed"; fi
     sleep 5
   done
@@ -389,24 +425,17 @@ su -s /bin/sh $TEST_USER -c '/bin/sh /tmp/scoot-check.sh'
 echo MSG-OK
 "
 # Pull the IPC screenshot back to the host for the artifacts.
-python3 - "$QMP" "$WORKDIR/installed-scoot.png" <<'EOF'
-import base64, json, socket, sys
-path, out = sys.argv[1], sys.argv[2]
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.connect(path)
-f = s.makefile("rwb")
-f.readline()
-def cmd(obj):
-    f.write(json.dumps(obj).encode() + b"\n"); f.flush()
-    while True:
-        msg = json.loads(f.readline())
-        if "return" in msg or "error" in msg: return msg
-cmd({"execute": "qmp_capabilities"})
-r = cmd({"execute": "guest-exec", "arguments": {"path": "/bin/cat", "arg": ["/tmp/installed-scoot.png"], "capture-output": True}})
-data = r["return"].get("out-data")
-assert r["return"].get("exitcode") == 0 and data, f"screenshot fetch failed: {r}"
-open(out, "wb").write(base64.b64decode(data))
-print("screenshot saved:", out)
+guest_exec "base64 -w0 /tmp/installed-scoot.png" > "$WORKDIR/installed-scoot-b64.txt"
+python3 - "$WORKDIR" <<'EOF'
+import base64, sys
+from pathlib import Path
+workdir = Path(sys.argv[1])
+raw = workdir.joinpath("installed-scoot-b64.txt").read_text()
+lines = [l for l in raw.splitlines() if l and not l.startswith("rc:")]
+b64 = max(lines, key=len) if lines else ""
+assert len(b64) > 100, f"screenshot fetch failed: {raw[-200:]}"
+workdir.joinpath("installed-scoot.png").write_bytes(base64.b64decode(b64))
+print("screenshot saved:", workdir / "installed-scoot.png")
 EOF
 stop_vm
 # Convert QMP's PPM screendumps to PNG for the workflow artifacts and
