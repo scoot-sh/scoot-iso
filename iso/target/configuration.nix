@@ -6,10 +6,10 @@
 # installer's path: overrides) and hardware-configuration.nix.
 # Installed with
 #   nixos-install --flake <config-dir>#scoot --root <root> --no-root-passwd
-#   --no-write-lock-file
-#   --override-input nixpkgs/scoot/home-manager path:<ISO store paths>
-# so install works with the network cut (the target closure is in the
-# ISO's store; the override paths are baked at ISO build time).
+#   --no-write-lock-file --option substitute false
+# so install works with the network cut: every input source the flake
+# needs rides the ISO (resolved from its own lock at ISO build time),
+# and any gap fails loud instead of phoning home.
 # `hostname`, `timezone`, `LANG` and `nixosversion` here are Calamares'
 # stock variables (same names and defaults as
 # calamares-nixos-extensions' classic path: hostname falls back to

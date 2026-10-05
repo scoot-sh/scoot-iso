@@ -102,8 +102,10 @@ check("home-manager.users.scoot.programs.scoot" in mirror, "mirror lost the home
 # Patch script carries every placeholder and the install mechanism.
 for token in ("@@SCOOT_HM_USER@@", "@@SCOOT_USERS@@", "@@SCOOT_LOOK@@", "@@SCOOT_NH_FLAKE@@", "HM_USER_STANZA", "USERS_STANZA"):
     check(token in patch, f"patch script lost {token}")
-check("--flake" in patch and "--override-input" in patch, "patch script lost the flake install command")
+check("--flake" in patch, "patch script lost the flake install command")
+check('\"--override-input\"' not in patch, "patch script must not carry --override-input (inputs ship in the ISO instead)")
 check('"--no-write-lock-file"' in patch, "patch script lost --no-write-lock-file (the installed lock must stay github-pinned)")
+check('\"substitute\"' in patch and '\"false\"' in patch, "patch script lost substitute=false (gaps must fail loud offline)")
 check('"/home/" + scoot_cmd_user + "/nixos-config#scoot"' in patch, "patch script lost the home-folder install ref")
 check('"/etc/nixos#scoot"' in patch, "patch script lost the system-wide install ref")
 check('"scoot_lock_text"' in patch or "scoot_lock_text = " in patch, "patch script lost the embedded flake.lock")

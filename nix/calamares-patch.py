@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Splice the scoot choice into calamares-nixos-extensions at ISO build time.
 
-The scoot choice writes a flake-based target (flake.nix +
-configuration.nix from this repo) and installs it with
-`nixos-install --flake ... --override-input ... path:<ISO store>`, so
-install works with the network cut. Everything else (hostname, user,
+The scoot choice writes a flake-based target (flake.nix + flake.lock +
+configuration.nix from this repo, into ~/nixos-config by default or
+/etc/nixos) and installs it with `nixos-install --flake` and
+substitute=false, so install works with the network cut: every input
+source the installed flake needs rides the ISO (resolved from its own
+lock at ISO build time). No --override-input, so the installed
+flake.lock stays pristine github pins. Everything else (hostname, user,
 timezone, locale, firefox) mirrors the stock classic path's variables.
 
 Every anchor is asserted to occur exactly once, so a nixpkgs re-pin that
@@ -13,9 +16,9 @@ dropping scoot. Never touches upstream: the patch is carried in this repo.
 
 Usage:
   calamares-patch.py <ext-src> <target-flake> <target-config> \\
-      <target-lock> <look-items> <location-conf> <nixpkgs-store> \\
-      <scoot-store> <hm-store> <system> <out-main.py> \\
-      <out-packagechooser.conf> <out-settings.conf> <out-location.conf>
+      <target-lock> <look-items> <location-conf> <system> \\
+      <out-main.py> <out-packagechooser.conf> <out-settings.conf> \\
+      <out-location.conf>
 """
 
 import json
@@ -104,9 +107,6 @@ def main() -> None:
         target_lock,
         item_file,
         location_file,
-        nixpkgs_store,
-        scoot_store,
-        hm_store,
         system,
         out_main,
         out_packagechooser,
@@ -287,10 +287,12 @@ def main() -> None:
     )
     main_py = replace_once(main_py, anchor_write, writer, "target writer")
 
-    # 3. Install the flake choice with baked override inputs (offline:
-    # the inputs resolve to the ISO store, whose target closure ships in
-    # isoImage.storeContents) without touching the shipped flake.lock,
-    # from the flake dir the Config-location page picked.
+    # 3. Install the flake choice offline: every input source the
+    # installed flake needs rides the ISO (resolved from its own lock at
+    # ISO build time), so no --override-input is needed and the
+    # installed flake.lock stays pristine. substitute=false makes any
+    # gap loud instead of phoning home; the lock is never rewritten
+    # (--no-write-lock-file).
     anchor_cmd = (
         '            "--option",\n'
         '            "build-dir",\n'
@@ -317,15 +319,9 @@ def main() -> None:
         + '                "--flake",\n'
         + '                scoot_flake_ref,\n'
         + '                "--no-write-lock-file",\n'
-        + '                "--override-input",\n'
-        + '                "nixpkgs",\n'
-        + f'                "path:{nixpkgs_store}",\n'
-        + '                "--override-input",\n'
-        + '                "scoot",\n'
-        + f'                "path:{scoot_store}",\n'
-        + '                "--override-input",\n'
-        + '                "home-manager",\n'
-        + f'                "path:{hm_store}",\n'
+        + '                "--option",\n'
+        + '                "substitute",\n'
+        + '                "false",\n'
         + "            ]\n"
         + "        )\n"
     )

@@ -22,6 +22,11 @@
       nixosConfigurations.scoot = nixpkgs.lib.nixosSystem {
         system = "@@SYSTEM@@";
         modules = [ ./configuration.nix ];
+        # configuration.nix reads inputs.* : pass them explicitly, or
+        # evaluation dies in an infinite recursion for `inputs`.
+        specialArgs.inputs = {
+          inherit nixpkgs scoot home-manager;
+        };
       };
     };
 }

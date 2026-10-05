@@ -288,16 +288,18 @@ echo "--- crashes? ---"; coredumpctl list --no-pager 2>/dev/null | head -5 || tr
 id nixos
 exit 0
 ' || true
-echo "--- browser manual launch with captured stderr ---"
+echo "--- browser bypass experiments (diagnostic; never fatal) ---"
 guest_exec '
 pkill_out=$(pgrep -f "[f]irefox --new-window" || true)
 for pid in $pkill_out; do if [ "$pid" != "$$" ]; then kill "$pid" || true; fi; done
 sleep 2
-rm -rf /home/nixos/.mozilla
-su -s /bin/sh nixos -c "HOME=/home/nixos WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 firefox --new-window file:///etc/scoot-welcome/index.html > /tmp/ff-manual.log 2>&1 &"
+echo "--- variant A: -profile with a pre-created dir (bypasses the profile manager) ---"
+mkdir -p /home/nixos/.welcome-profile
+chown nixos:users /home/nixos/.welcome-profile
+su -s /bin/sh nixos -c "HOME=/home/nixos WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 firefox -profile /home/nixos/.welcome-profile --new-window file:///etc/scoot-welcome/index.html > /tmp/ff-profile.log 2>&1 &"
 sleep 25
-echo "--- .mozilla now ---"; ls -laR /home/nixos/.mozilla 2>&1 | head -20 || true
-echo "--- manual launch log ---"; head -40 /tmp/ff-manual.log || true
+ls -la /home/nixos/.welcome-profile 2>&1 | head -10 || true
+echo "--- variant A log ---"; head -30 /tmp/ff-profile.log || true
 exit 0
 ' || true
 sleep 5 # let the welcome page paint
@@ -308,7 +310,6 @@ echo "=== phase 1c: the shipped patch embeds our exact templates ==="
 # The patch embeds the target files via repr(); the guest extracts them
 # from the live ISO's patched main.py and compares hashes, so no bulk
 # data crosses the (input-data-broken) channel in either direction.
-# Same for the baked override-input store paths (they must exist live).
 flake_hash=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1]).read().replace("@@SYSTEM@@", sys.argv[2]).encode()).hexdigest())' "$TARGET_FLAKE" "$SYSTEM")
 config_hash=$(sha256sum "$TARGET_CONFIG" | cut -d' ' -f1)
 lock_hash=$(sha256sum "$(dirname "$0")/../iso/target/flake.lock" | cut -d' ' -f1)
@@ -327,41 +328,14 @@ def grab(name):
     for line in src.splitlines():
         s = line.strip()
         if s.startswith(name + " = "):
-            return ast.literal_eval(s.split(" = ", 1)[1])
+            rhs = s.split(" = ", 1)[1]
+            if rhs[:1] == chr(39) or rhs[:1] == chr(34):
+                return ast.literal_eval(rhs)
     raise SystemExit("template not found in shipped main.py: " + name)
 for name, digest in want.items():
     got = hashlib.sha256(grab(name).encode()).hexdigest()
     assert got == digest, name + " hash mismatch: " + got + " != " + digest
     print(name + " hash OK: " + got)
-paths = []
-i = 0
-while True:
-    j = src.find("path:/nix/store/", i)
-    if j < 0:
-        break
-    k = src.find(chr(34), j)
-    paths.append(src[j + 5:k])
-    i = k
-for m in paths:
-    assert os.path.exists(m), "baked override path missing from live store: " + m
-    print("override path present:", m)
-q = chr(34)
-start = src.find(q + "--override-input" + q + ",")
-assert start >= 0, "override block not found in shipped main.py"
-toks = []
-pos = start
-while len(toks) < 9:
-    a = src.find(q, pos)
-    b = src.find(q, a + 1)
-    assert a >= 0 and b > a, "override block truncated"
-    toks.append(src[a + 1:b])
-    pos = b + 1
-flags = []
-for n in range(0, 9, 3):
-    assert toks[n] == "--override-input", "override triple misaligned: " + toks[n]
-    flags += ["--override-input", toks[n + 1], toks[n + 2]]
-open("/tmp/iso-override-flags", "w").write(" ".join(flags))
-print("override flags:", " ".join(flags))
 print("EMBEDDING-OK")
 PYEOF
 '
@@ -432,23 +406,11 @@ print('RENDER-OK')
 PYEOF
 "
 guest_exec "
-overrides=\$(cat /tmp/iso-override-flags)
-echo \"overrides: \$overrides\"
 ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 ip -o link show
-echo '--- pre-install: repo readable as root (dubious-ownership probe)? ---'
-export HOME=/root
-git -C /mnt/home/$TEST_USER/nixos-config status --short || true
-git config --global --add safe.directory /mnt/home/$TEST_USER/nixos-config
-git -C /mnt/home/$TEST_USER/nixos-config status --short && echo GIT-ROOT-OK
-ls -la /mnt/home/$TEST_USER/nixos-config/ /mnt/etc/nixos
-echo '--- which flake sources are in the live store? ---'
-ls -d /nix/store/*-source 2>/dev/null | head -20 || true
-echo '--- offline eval probe (names anything not resolvable locally) ---'
-nix eval --offline --no-write-lock-file $overrides '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel.drvPath' 2>&1 | head -20 || true
-echo '--- nested override syntax probe ---'
-nix flake metadata --json --no-write-lock-file --override-input scoot/nixpkgs path:/nix/store/wr3njgpzrbmxfcdys91h0x23i9v12551-source /mnt/home/$TEST_USER/nixos-config 2>&1 | head -5 || true
-unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --option build-dir /nix/var/nix/builds \$overrides' > /tmp/install.log 2>&1
+echo '--- offline eval gate: the generated flake must resolve with no network and no substituters ---'
+nix eval --offline --option substitute false --no-write-lock-file '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel.drvPath' && echo EVAL-OFFLINE-OK
+unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --option build-dir /nix/var/nix/builds --option substitute false' > /tmp/install.log 2>&1
 rc=\$?
 echo INSTALL-RC:\$rc
 tail -40 /tmp/install.log

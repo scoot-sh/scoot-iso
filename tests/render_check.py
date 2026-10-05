@@ -41,8 +41,6 @@ class FakeSubprocess:
     check_output = staticmethod(_check_output)
 
 src = open(main_py_path).read()
-
-src = open(main_py_path).read()
 start = src.index('    scoot_choice = gs.value("packagechooser_packagechooser")')
 endmark = '    else:\n        libcalamares.utils.host_env_process_output(["cp", "/dev/stdin", config], None, cfg)'
 end = src.index(endmark)
@@ -99,6 +97,10 @@ def check(cond, msg):
     if not cond:
         failures.append(msg)
         print("FAIL:", msg)
+
+
+check("--override-input" not in src, "generated main.py must not carry --override-input")
+check('"substitute"' in src, "generated main.py lost substitute=false")
 
 
 for choice, loc, variables, layout, look, nh_flake, want_user in CASES:

@@ -33,6 +33,27 @@
       ];
       forEach = f: nixpkgs.lib.genAttrs systems (system: f system);
       flakeInputs = { inherit nixpkgs scoot home-manager; };
+      # Every source tree the INSTALLED flake must resolve offline,
+      # read from its own lock (direct and transitive alike): the ISO
+      # build fetches each once, and they ride isoImage.storeContents
+      # so the network-cut install (and later offline rebuilds) never
+      # fetch. The install therefore needs no --override-input at all,
+      # and the installed flake.lock stays pristine github pins.
+      targetInputSrcs =
+        let
+          lock = builtins.fromJSON (builtins.readFile ./iso/target/flake.lock);
+          githubNodes = builtins.filter (n: (n.locked or { }).type or "" == "github") (
+            builtins.attrValues lock.nodes
+          );
+          fetchNode = n: builtins.fetchTree {
+            type = "github";
+            owner = n.locked.owner;
+            repo = n.locked.repo;
+            rev = n.locked.rev;
+            narHash = n.locked.narHash;
+          };
+        in
+        map fetchNode githubNodes;
       # Calamares with the scoot desktop choice, carried as a patch in
       # this repo (never upstream). Anchors are asserted exactly-once
       # by the patch script, so a nixpkgs re-pin that changes upstream
@@ -53,9 +74,6 @@
               ${./iso/target/flake.lock} \
               ${./nix/packagechooser-scoot.conf} \
               ${./nix/packagechooser-scoot-location.conf} \
-              ${nixpkgs} \
-              ${scoot} \
-              ${home-manager} \
               ${system} \
               $out/src/modules/nixos/main.py \
               $out/src/config/modules/packagechooser.conf \
@@ -87,7 +105,7 @@
                 ./nix/live.nix
               ];
               specialArgs = {
-                inherit scoot flakeInputs;
+                inherit scoot flakeInputs targetInputSrcs;
                 calamaresOverlay = mkCalamaresOverlay (calamaresFor system);
                 targetToplevel =
                   self.nixosConfigurations."scoot-target-${system}".config.system.build.toplevel;

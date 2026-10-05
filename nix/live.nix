@@ -9,6 +9,7 @@
   modulesPath,
   scoot,
   flakeInputs,
+  targetInputSrcs,
   calamaresOverlay,
   targetToplevel,
   ...
@@ -217,10 +218,13 @@ in
     # reference target mirrors iso/target/configuration.nix's scoot
     # options (see nix/target-machine.nix); sameness of the installed
     # files is by construction (the patch consumes the same derivations
-    # exposed as scootIso.targetFlake/targetConfiguration).
+    # exposed as scootIso.targetFlake/targetConfiguration). The
+    # installed flake's input sources ride along too (resolved from its
+    # own lock at ISO build time), so no --override-input is needed and
+    # the installed flake.lock stays pristine.
     isoImage.storeContents = [
       config.system.build.toplevel
       targetToplevel
-    ];
+    ] ++ targetInputSrcs;
   };
 }
