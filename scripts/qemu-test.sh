@@ -89,6 +89,12 @@ EOF
 # qemu-ga protocol itself (stdlib python): guest-sync-delimited framing
 # per connection, guest-exec, then guest-exec-status polling. QMP stays
 # for monitor commands only (status, screendump, send-key, quit).
+#
+# One hard rule from the transport experiment: input-data arrives
+# corrupt (a 13-byte stdin failed outright; 600 sent bytes arrived as
+# 450), while argv arrives intact. So scripts travel in argv (-c),
+# never in input-data; anything bulk-sized is read from files already
+# in the guest (the shipped main.py embeds the installer templates).
 qga() {
   python3 - "$GASOCK" "$@" <<'EOF'
 import base64, json, socket, sys, time
@@ -119,9 +125,8 @@ if mode == "ping":
     r = transact({"execute": "guest-ping"})
     print(json.dumps(r))
 elif mode == "exec":
-    import os
-    b64 = args[1]
-    r = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | /bin/sh"], "input-data": b64, "capture-output": True}})
+    script = args[1]
+    r = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", script], "capture-output": True}})
     if "error" in r:
         raise SystemExit(f"guest-exec refused: {r}")
     pid = r["return"]["pid"]
@@ -145,11 +150,10 @@ EOF
 }
 
 # guest_exec <shell-command>: run via qemu-ga as root, poll, print output.
+# The command travels in argv (see above); keep each invocation small
+# (a few KB at most) and read bulk data from guest files instead.
 guest_exec() {
-  local script="$1"
-  local b64
-  b64=$(printf '%s' "$script" | base64 -w0)
-  qga exec "$b64"
+  qga exec "$1"
 }
 
 wait_ga() {
@@ -247,43 +251,6 @@ stop_vm() {
 echo "=== phase 1: boot live ISO ==="
 start_vm d
 wait_ga
-echo "--- TEMP DEBUG: qga transport experiment ---"
-python3 - "$GASOCK" <<'EOF' || echo "transport experiment failed"
-import base64, json, socket, sys, time
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(20)
-s.connect(sys.argv[1])
-f = s.makefile("rwb")
-def transact(obj):
-    data = json.dumps(obj).encode() + b"\n"
-    print(f"C2S {len(data)} bytes: {data[:100]!r}", flush=True)
-    f.write(data); f.flush()
-    while True:
-        line = f.readline()
-        if not line: raise SystemExit("closed")
-        line = line.lstrip(b"\xff")
-        try: msg = json.loads(line)
-        except ValueError: continue
-        if "return" in msg or "error" in msg: return msg
-print("sync:", transact({"execute": "guest-sync-delimited", "arguments": {"id": 424242}}))
-rA = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "echo ARGV-OK"], "capture-output": True}})
-rB = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | /bin/sh"], "input-data": base64.b64encode(b"echo STDIN-OK").decode(), "capture-output": True}})
-big = base64.b64encode(b"A" * 600).decode()
-rC = transact({"execute": "guest-exec", "arguments": {"path": "/bin/sh", "arg": ["-c", "base64 -d | wc -c"], "input-data": big, "capture-output": True}})
-print("A submit:", rA)
-print("B submit:", rB)
-print("C submit:", rC)
-pids = [("A", rA["return"]["pid"]), ("B", rB["return"]["pid"]), ("C", rC["return"]["pid"])]
-done = set()
-for _ in range(30):
-    time.sleep(2)
-    for tag, pid in pids:
-        if (tag, pid) in done: continue
-        r = transact({"execute": "guest-exec-status", "arguments": {"pid": pid}})
-        print(tag, "status:", r, flush=True)
-        if r.get("return", {}).get("exited"): done.add((tag, pid))
-    if len(done) == 3: break
-EOF
 sleep 20 # let the scoot session settle
 qmp screendump "{\"filename\": \"$WORKDIR/live-session.ppm\"}" >/dev/null
 echo "live screenshot: $WORKDIR/live-session.ppm"
@@ -298,7 +265,7 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 guest_exec 'XDG_RUNTIME_DIR=/run/user/$(id -u nixos) scoot msg windows || sudo -u nixos XDG_RUNTIME_DIR=/run/user/$(id -u nixos) scoot msg windows' || true
-echo "--- TEMP DEBUG: firefox profile failure ---"
+echo "--- firefox env (diagnostic; never fatal) ---"
 guest_exec '
 echo "--- firefox env ---"
 for pid in $(pgrep -f "firefox.*scoot-welcome"); do echo "== $pid =="; tr '\0' '\n' < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
@@ -306,69 +273,96 @@ echo "--- nixos home ---"; ls -la /home/nixos/ | head -20
 echo "--- mozilla dir ---"; ls -la /home/nixos/.mozilla/ 2>&1 || true
 id nixos
 exit 0
-'
+' || true
 sleep 5 # let the welcome page paint
 qmp screendump "{\"filename\": \"$WORKDIR/welcome-window.ppm\"}" >/dev/null
 echo "welcome screenshot: $WORKDIR/welcome-window.ppm"
 
 echo "=== phase 1c: the shipped patch embeds our exact templates ==="
-# Copy the templates into the guest and assert the live ISO's patched
-# main.py contains them byte-for-byte (the patch embeds via repr()).
+# The patch embeds the target files via repr(); the guest extracts them
+# from the live ISO's patched main.py and compares hashes, so no bulk
+# data crosses the (input-data-broken) channel in either direction.
 # Same for the baked override-input store paths (they must exist live).
-TFLAKE_B64=$(base64 -w0 "$TARGET_FLAKE")
-TCONFIG_B64=$(base64 -w0 "$TARGET_CONFIG")
-guest_exec "
-python3 - '$TFLAKE_B64' '$TCONFIG_B64' '$SYSTEM' <<'PYEOF'
-import base64, glob, sys
-flake = base64.b64decode(sys.argv[1]).decode().replace('@@SYSTEM@@', sys.argv[3])
-config = base64.b64decode(sys.argv[2]).decode()
-cands = glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')
-cands += glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')
-cands += glob.glob('/run/current-system/sw/share/calamares/modules/nixos/main.py')
-found = [c for c in cands]
-print('main.py candidates:', found)
-if not found:
-    raise SystemExit('patched main.py not found in live store')
-main_py = max((open(c).read() for c in found), key=len)
-assert repr(flake) in main_py, 'target flake.nix not embedded byte-exact in shipped main.py'
-# configuration.nix is embedded with @@-variables intact (substituted at install time)
-assert repr(config) in main_py, 'target configuration.nix not embedded byte-exact in shipped main.py'
-import re
-for m in re.findall(r'\"path:(/nix/store/[^\"]+)\"', main_py):
-    import os
-    assert os.path.exists(m), f'baked override path missing from live store: {m}'
-    print('override path present:', m)
-print('EMBEDDING-OK')
+flake_hash=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1]).read().replace("@@SYSTEM@@", sys.argv[2]).encode()).hexdigest())' "$TARGET_FLAKE" "$SYSTEM")
+config_hash=$(sha256sum "$TARGET_CONFIG" | cut -d' ' -f1)
+guest_exec '
+python3 - '"$flake_hash"' '"$config_hash"' <<'PYEOF'
+import ast, glob, hashlib, os, sys
+want = {"scoot_flake_text": sys.argv[1], "scoot_config_text": sys.argv[2]}
+cands = glob.glob("/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py")
+cands += glob.glob("/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py")
+cands += glob.glob("/run/current-system/sw/share/calamares/modules/nixos/main.py")
+print("main.py candidates:", cands)
+if not cands:
+    raise SystemExit("patched main.py not found in live store")
+src = max((open(c).read() for c in cands), key=len)
+def grab(name):
+    for line in src.splitlines():
+        s = line.strip()
+        if s.startswith(name + " = "):
+            return ast.literal_eval(s.split(" = ", 1)[1])
+    raise SystemExit("template not found in shipped main.py: " + name)
+for name, digest in want.items():
+    got = hashlib.sha256(grab(name).encode()).hexdigest()
+    assert got == digest, name + " hash mismatch: " + got + " != " + digest
+    print(name + " hash OK: " + got)
+paths = []
+i = 0
+while True:
+    j = src.find("path:/nix/store/", i)
+    if j < 0:
+        break
+    k = src.find(chr(34), j)
+    paths.append(src[j + 5:k])
+    i = k
+for m in paths:
+    assert os.path.exists(m), "baked override path missing from live store: " + m
+    print("override path present:", m)
+print("EMBEDDING-OK")
 PYEOF
-"
+'
 
 echo "=== phase 2: unattended install, network cut ==="
 guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && mount /dev/vda2 /mnt && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && nixos-generate-config --root /mnt && echo PARTITION-OK'
-# Render the target files with the patch's own variable semantics, then
+# Render the target files from the SHIPPED main.py's embedded templates
+# (extracted exactly as the patch wrote them, then substituted with the
+# writer's own semantics for the default scoot-moonrise choice), then
 # install with the guest network namespace emptied (unshare -n): any
 # missing closure path fails here instead of phoning home.
 guest_exec "
-python3 - '$TFLAKE_B64' '$TCONFIG_B64' '$TEST_USER' 'Test User' 'scoot-test' 'Etc/UTC' 'en_US.UTF-8' '25.11' <<'PYEOF'
-import base64, os, sys
-flake = base64.b64decode(sys.argv[1]).decode().replace('@@SYSTEM@@', '$SYSTEM')
-config = base64.b64decode(sys.argv[2]).decode()
-_, _, username, fullname, hostname, timezone, lang, nixosversion = sys.argv[1:9]
+python3 - '$TEST_USER' 'Test User' 'scoot-test' 'Etc/UTC' 'en_US.UTF-8' '25.11' '$SYSTEM' <<'PYEOF'
+import ast, glob, os, sys
+_, username, fullname, hostname, timezone, lang, nixosversion, system = sys.argv
+cands = glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')
+cands += glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')
+cands += glob.glob('/run/current-system/sw/share/calamares/modules/nixos/main.py')
+if not cands:
+    raise SystemExit('patched main.py not found in live store')
+src = max((open(c).read() for c in cands), key=len)
+def grab(name):
+    for line in src.splitlines():
+        s = line.strip()
+        if s.startswith(name + ' = '):
+            rhs = s.split(' = ', 1)[1]
+            if rhs[:1] == chr(39) or rhs[:1] == chr(34):
+                return ast.literal_eval(rhs)
+    raise SystemExit('template not found in shipped main.py: ' + name)
+flake = grab('scoot_flake_text').replace('@@SYSTEM@@', system)
+config = grab('scoot_config_text')
+hm = grab('scoot_hm').replace('@@SCOOT_LOOK@@', 'moonrise')
+users = grab('scoot_users')
+scoot_vars = {'hostname': hostname, 'username': username, 'fullname': fullname, 'timezone': timezone, 'LANG': lang, 'nixosversion': nixosversion}
+for _key, _val in scoot_vars.items():
+    hm = hm.replace('@@' + _key + '@@', _val)
+    users = users.replace('@@' + _key + '@@', _val)
 config = config.replace('@@SCOOT_LOOK@@', 'moonrise')
-config = config.replace('@@TIMEZONE@@', f'  time.timeZone = "{timezone}";')
-config = config.replace('@@LOCALE@@', f'  i18n.defaultLocale = \"{lang}\";')
-users = f'''  users.users.\"{username}\" = {{
-    isNormalUser = true;
-    description = \"{fullname}\";
-    extraGroups = [ \"networkmanager\" \"wheel\" ];
-  }};
-'''
-hm = f'''  home-manager.users."{username}".imports = [ inputs.scoot.homeModules.scoot inputs.scoot.homeModules.scootbar ];
-  home-manager.users."{username}".programs.scoot = {{ enable = true; desktop.enable = true; desktop.look = "moonrise"; }};
-  home-manager.users."{username}".programs.scootbar.enable = true;
-  home-manager.users."{username}".home.stateVersion = "25.11";
-'''
-config = config.replace('  # @@SCOOT_USERS@@', users.rstrip('\n')).replace('  # @@SCOOT_HM_USER@@', hm.rstrip('\n'))
-config = config.replace('@@hostname@@', hostname).replace('@@nixosversion@@', nixosversion)
+config = config.replace('  # @@TIMEZONE@@\n', '  time.timeZone = \"' + timezone + '\";\n')
+config = config.replace('  # @@LOCALE@@\n', '  i18n.defaultLocale = \"' + lang + '\";\n')
+config = config.replace('  # @@SCOOT_HM_USER@@', hm.rstrip(chr(10))).replace('  # @@SCOOT_USERS@@', users.rstrip(chr(10)))
+for _key, _val in scoot_vars.items():
+    config = config.replace('@@' + _key + '@@', _val)
+assert '@@' not in config, 'unsubstituted marker left in rendered config'
+assert '@@' not in flake, 'unsubstituted marker left in rendered flake'
 os.makedirs('/mnt/etc/nixos', exist_ok=True)
 open('/mnt/etc/nixos/flake.nix', 'w').write(flake)
 open('/mnt/etc/nixos/configuration.nix', 'w').write(config)
@@ -458,19 +452,36 @@ chown $TEST_USER:users /tmp/scoot-check.sh
 su -s /bin/sh $TEST_USER -c '/bin/sh /tmp/scoot-check.sh'
 echo MSG-OK
 "
-# Pull the IPC screenshot back to the host for the artifacts.
-guest_exec "base64 -w0 /tmp/installed-scoot.png" > "$WORKDIR/installed-scoot-b64.txt"
-python3 - "$WORKDIR" <<'EOF'
+# Pull the IPC screenshot back to the host for the artifacts, in small
+# pieces: only small guest->host payloads are proven, so the
+# reassembled PNG is validated, and the test carries on with the QMP
+# screendump alone if the fetch fails (the guest-side SCREENSHOT-OK
+# already proves scoot's own screenshot path).
+guest_exec 'split -b 100K -d /tmp/installed-scoot.png /tmp/shot_ && echo SPLIT-OK || echo SPLIT-FAIL'
+: > "$WORKDIR/shot-parts.b64"
+pieces=0
+while [ "$pieces" -lt 20 ]; do
+  frag=$(printf '/tmp/shot_%02d' "$pieces")
+  out=$(guest_exec "base64 -w0 $frag 2>/dev/null || echo MISSING") || break
+  if printf '%s' "$out" | grep -q '^MISSING$'; then break; fi
+  body=$(printf '%s' "$out" | grep -v '^rc:' || true)
+  printf '%s' "$body" >> "$WORKDIR/shot-parts.b64"
+  pieces=$((pieces + 1))
+  if [ "${#body}" -lt 100000 ]; then break; fi
+done
+if [ "$pieces" -gt 0 ] && python3 - "$WORKDIR/shot-parts.b64" "$WORKDIR/installed-scoot.png" <<'EOF'
 import base64, sys
-from pathlib import Path
-workdir = Path(sys.argv[1])
-raw = workdir.joinpath("installed-scoot-b64.txt").read_text()
-lines = [l for l in raw.splitlines() if l and not l.startswith("rc:")]
-b64 = max(lines, key=len) if lines else ""
-assert len(b64) > 100, f"screenshot fetch failed: {raw[-200:]}"
-workdir.joinpath("installed-scoot.png").write_bytes(base64.b64decode(b64))
-print("screenshot saved:", workdir / "installed-scoot.png")
+raw = base64.b64decode(open(sys.argv[1]).read())
+assert raw[:8] == b"\x89PNG\r\n\x1a\n", "reassembled bytes are not a PNG"
+assert len(raw) > 10000, f"suspiciously small screenshot: {len(raw)}"
+open(sys.argv[2], "wb").write(raw)
+print(f"screenshot saved: {sys.argv[2]} ({len(raw)} bytes)")
 EOF
+then
+  echo "PNG-OK"
+else
+  echo "PNG-FETCH-WARN: continuing with the QMP screendump alone"
+fi
 stop_vm
 # Convert QMP's PPM screendumps to PNG for the workflow artifacts and
 # the README (stdlib only; idempotent, so the workflow's fallback step

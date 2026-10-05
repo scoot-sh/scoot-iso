@@ -138,12 +138,12 @@ def main() -> None:
         '        scoot_config_text = scoot_config_text.replace("@@SCOOT_LOOK@@", scoot_look)\n'
         '        if "timezone" in scoot_vars:\n'
         '            scoot_config_text = scoot_config_text.replace(\n'
-        '                "@@TIMEZONE@@", ' + repr(TIMEZONE_LINE) + ')\n'
+        '                "  # @@TIMEZONE@@\\n", ' + repr(TIMEZONE_LINE) + ')\n'
         "        else:\n"
         '            scoot_config_text = scoot_config_text.replace("  # @@TIMEZONE@@\\n", "")\n'
         '        if "LANG" in scoot_vars:\n'
         '            scoot_config_text = scoot_config_text.replace(\n'
-        '                "@@LOCALE@@", ' + repr(LOCALE_LINE) + ')\n'
+        '                "  # @@LOCALE@@\\n", ' + repr(LOCALE_LINE) + ')\n'
         "        else:\n"
         '            scoot_config_text = scoot_config_text.replace("  # @@LOCALE@@\\n", "")\n'
         '        if "username" in scoot_vars:\n'
