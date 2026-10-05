@@ -12,11 +12,6 @@ on:
       - "docs/**"
       - "iso/welcome/**"
   workflow_dispatch:
-    inputs:
-      qemu:
-        description: "Run the full QEMU install test (needs a KVM self-hosted runner)"
-        type: boolean
-        default: false
 
 jobs:
   check:
@@ -79,30 +74,43 @@ jobs:
           sudo apt-get install -y -q qemu-system-x86
           qemu-system-x86_64 -accel help | grep -qi kvm && echo KVM-OK
 
-  # Full QEMU install test: boots the ISO, installs offline with the
-  # GUI-identical files, reboots into ReGreet, checks the session.
-  # Needs KVM: GitHub-hosted runners have none, so this runs only on a
-  # self-hosted KVM runner via workflow_dispatch (or a repo label).
-  # aarch64 builds run on the Asahi box the same way (never on PR CI).
+  # Full QEMU install test: boots the ISO, screenshots the live session
+  # and the welcome window, installs offline with the GUI-identical
+  # files and the network cut, reboots into ReGreet, logs in, checks
+  # scoot + bar + wallpaper via `scoot msg`, and screenshots the
+  # installed desktop. Runs on every PR on ubuntu-latest: the kvm-probe
+  # job above proves /dev/kvm is usable there with the udev rule.
+  # aarch64 builds run on the Asahi box (never on PR CI).
   qemu-test:
     needs: build-iso
-    if: github.event_name == 'workflow_dispatch' && inputs.qemu
-    runs-on: [self-hosted, linux, kvm]
+    runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v18
-      - name: build ISO + target files
+      - name: enable KVM
         run: |
-          nix build .#packages.x86_64-linux.iso -o result-iso
-          nix build '.#packages.x86_64-linux.target-flake' -o result-target-flake
-          nix build '.#packages.x86_64-linux.target-configuration' -o result-target-config
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: fetch ISO + build target files
+        uses: actions/download-artifact@v4
+        with:
+          name: scoot-iso-x86_64-linux
+          path: result-iso
+      - name: build target files
+        run: |
+          nix build '.#packages.x86_64-linux.target-flake' -o result-target-flake --print-build-logs
+          nix build '.#packages.x86_64-linux.target-configuration' -o result-target-config --print-build-logs
+          find result-iso -name '*.iso'
       - name: run QEMU test
         run: |
           sudo apt-get update -y -q
           sudo apt-get install -y -q qemu-system-x86 ovmf qemu-utils
+          iso=$(find result-iso -name '*.iso' | head -1)
+          echo "testing ISO: $iso ($(stat -c%s "$iso") bytes)"
           scripts/qemu-test.sh \
-            --iso result-iso/iso/*.iso \
+            --iso "$iso" \
             --target-flake "$(readlink -f result-target-flake)" \
             --target-config "$(readlink -f result-target-config)" \
             --workdir /tmp/scoot-iso-qemu \
@@ -112,7 +120,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: scoot-iso-qemu
-          path: /tmp/scoot-iso-qemu/*.ppm
+          path: /tmp/scoot-iso-qemu/*.png
           retention-days: 14
 
   release:
