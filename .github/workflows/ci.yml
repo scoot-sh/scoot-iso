@@ -26,13 +26,13 @@ jobs:
           nix build .#checks.x86_64-linux.patch-consistency --print-build-logs
       - name: patched source check (same derivation the ISO overlays)
         run: |
-          nix build .#packages.x86_64-linux.calamares-ext-patched-src --print-build-logs
+          nix build .#packages.x86_64-linux.calamares-ext-patched-src -o result-patched-src --print-build-logs
       - name: patched package check (proves the source keeps the expected layout)
         run: |
           nix build .#packages.x86_64-linux.calamares-nixos-scoot --print-build-logs
       - name: "render check (installer writer matrix)"
         run: |
-          sudo python3 tests/render_check.py result/src/modules/nixos/main.py iso/target
+          sudo python3 tests/render_check.py result-patched-src/src/modules/nixos/main.py iso/target
 
   build-iso:
     needs: check
