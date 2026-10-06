@@ -5,110 +5,188 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Welcome to scoot</title>
 <style>
+  @font-face {
+    font-family: 'League Spartan';
+    src: url("league-spartan-latin-900.woff2") format('woff2');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+  }
   :root {
-    /* moonrise look (scoot docs/examples/moonrise): */
-    --bg: #2B3648;
-    --bg-deep: #1d2634;
-    --fg: #F6EEDC;
-    --accent: #FFA45C;
-    --hover: #FFD54A;
-    --dim: #9C8B95;
-    --urgent: #E87F6A;
-    --ring-inactive: #5E4B5B;
+    /* scoot.sh brand (site/src/styles/custom.css): the logo's own
+       black ground, white type, one ginger accent sampled from the
+       cat's fur. No gradients, glows, shadows or textures. */
+    --night: #000000;
+    --paper: #FFFFFF;
+    --fur: #CB6F34;
+    --signal: #E09A5C;
+    --ash: #8A8A8A;
+    --seam: #2A2A2A;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    background: var(--bg-deep);
-    color: var(--fg);
-    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--night);
+    color: var(--paper);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  main { max-width: 880px; margin: 0 auto; padding: 48px 24px 64px; }
-  header h1 { font-size: 2.4rem; margin: 0 0 0.2em; letter-spacing: 0.01em; }
-  header h1 .accent { color: var(--accent); }
-  header p.sub { color: var(--hover); font-size: 1.1rem; margin-top: 0; }
-  figure.hero { margin: 1.5rem 0 0; }
-  figure.hero img {
+  main { max-width: 880px; margin: 0 auto; padding: 32px 24px 64px; }
+  a { color: var(--fur); }
+  a:hover { color: var(--signal); }
+  :focus-visible { outline: 2px solid var(--fur); outline-offset: 2px; }
+
+  /* Hero, as on scoot.sh: the cat art first (its ground is pure
+     black, so it melts into the page — square edges, no frame),
+     then the punchline continuing the art's wordmark, then what
+     this session is for. */
+  .hero { text-align: center; }
+  .hero img {
     display: block;
     width: 100%;
-    border-radius: 14px;
-    border: 1px solid var(--ring-inactive);
+    height: auto;
+    max-height: 300px;
+    object-fit: contain;
   }
-  figure.hero figcaption { color: var(--dim); font-size: 0.85rem; margin-top: 0.5em; }
-  figure.hero figcaption a { color: var(--dim); }
-  section { margin-top: 2.5rem; }
-  h2 { font-size: 1.25rem; color: var(--accent); border-bottom: 1px solid var(--ring-inactive); padding-bottom: 0.3em; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
-  .card {
-    border: 1px solid var(--ring-inactive);
-    border-radius: 12px;
-    padding: 1.1rem 1.2rem;
-    background: rgba(246, 238, 220, 0.03);
+  .hero h1 {
+    font-family: 'League Spartan', system-ui, sans-serif;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    font-size: clamp(2rem, 6vw, 3rem);
+    line-height: 1;
+    margin: 0.4em 0 0.15em;
   }
-  .card h3 { margin: 0 0 0.4em; font-size: 1.05rem; color: var(--hover); }
-  .card p { margin: 0.4em 0; }
-  table.keys { border-collapse: collapse; width: 100%; margin-top: 0.8rem; }
-  table.keys td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--ring-inactive); vertical-align: top; }
-  table.keys td:first-child { width: 42%; }
-  kbd {
-    display: inline-block;
-    background: var(--ring-inactive);
-    color: var(--fg);
-    border-radius: 6px;
-    padding: 0.1em 0.55em;
-    margin: 0.1em 0.15em 0.1em 0;
-    font: 0.85rem/1.6 ui-monospace, monospace;
-    white-space: nowrap;
+  .hero p.tag {
+    margin: 0;
+    color: var(--paper);
+    font-size: 1.05rem;
+  }
+  .hero p.live {
+    margin: 0.6em 0 0;
+    color: var(--ash);
+    font-size: 0.95rem;
+  }
+
+  section { margin-top: 2.2rem; border-top: 1px solid var(--seam); padding-top: 1.4rem; }
+  section h2 {
+    font-family: 'League Spartan', system-ui, sans-serif;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    font-size: 1.375rem;
+    line-height: 1.3;
+    margin: 0 0 0.8rem;
+  }
+  section h3 {
+    font-family: 'League Spartan', system-ui, sans-serif;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    font-size: 1.125rem;
+    line-height: 1.4;
+    margin: 0 0 0.4rem;
+  }
+  p { margin: 0.5em 0; max-width: 72ch; }
+  .dim { color: var(--ash); }
+
+  /* The two install paths: side by side with a hairline between
+     them, never boxes. They are alternatives, not steps. */
+  .paths { display: grid; grid-template-columns: 1fr 1fr; gap: 0 2rem; }
+  .paths > div + div { border-left: 1px solid var(--seam); padding-left: 2rem; }
+  @media (max-width: 640px) {
+    .paths { grid-template-columns: 1fr; }
+    .paths > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--seam); padding-top: 1.2rem; margin-top: 1.2rem; }
+  }
+
+  /* Commands: one gets the terminal chrome echoing the art's
+     windows; the rest are plain mono blocks. */
+  .term-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    background: var(--night);
+    border: 1px solid var(--seam);
+    border-bottom: 0;
+    border-radius: 0.5rem 0.5rem 0 0;
+    padding: 0.6rem 0.9rem;
+    margin-top: 0.6em;
+  }
+  .term-bar i { width: 0.75rem; height: 0.75rem; border-radius: 50%; }
+  .term-bar i:nth-child(1) { background: #ff5f57; }
+  .term-bar i:nth-child(2) { background: #febc2e; }
+  .term-bar i:nth-child(3) { background: #28c840; }
+  .term-body {
+    background: var(--night);
+    border: 1px solid var(--seam);
+    border-radius: 0 0 0.5rem 0.5rem;
+    padding: 0.9rem;
+    font: 0.9rem/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color: var(--paper);
+    overflow-x: auto;
   }
   code.cmd {
     display: block;
-    background: var(--bg-deep);
-    border: 1px solid var(--ring-inactive);
-    border-radius: 8px;
+    background: var(--night);
+    border: 1px solid var(--seam);
+    border-radius: 0.5rem;
     padding: 0.6em 0.8em;
-    margin-top: 0.5em;
-    font: 0.9rem/1.5 ui-monospace, monospace;
-    color: var(--hover);
+    margin-top: 0.6em;
+    font: 0.9rem/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color: var(--signal);
     overflow-x: auto;
   }
-  a { color: var(--accent); }
-  a:hover { color: var(--hover); }
+  code.inline {
+    font: 0.9em ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color: var(--signal);
+  }
+
+  table.keys { border-collapse: collapse; width: 100%; margin-top: 0.8rem; }
+  table.keys td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--seam); vertical-align: top; }
+  table.keys td:first-child { width: 42%; }
+  kbd {
+    display: inline-block;
+    padding: 0.1em 0.45em;
+    margin: 0 0.1em;
+    font: 0.85rem/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color: var(--paper);
+    background: #1A1A1A;
+    border: 1px solid var(--seam);
+    border-bottom-width: 2px;
+    border-radius: 0.375rem;
+    white-space: nowrap;
+  }
   ul.links { columns: 2; column-gap: 2rem; }
   ul.links li { break-inside: avoid; margin-bottom: 0.4em; }
-  footer { margin-top: 3rem; color: var(--dim); font-size: 0.9rem; }
-  .note { border-left: 3px solid var(--accent); padding-left: 1em; color: var(--fg); }
+  footer { margin-top: 3rem; border-top: 1px solid var(--seam); padding-top: 1rem; color: var(--ash); font-size: 0.85rem; }
+  footer a { color: var(--ash); }
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <h1>Welcome to <span class="accent">scoot</span></h1>
-    <p class="sub">A lightweight, fast and beautiful scrolling-tiling Wayland compositor that runs without a GPU.</p>
-    <figure class="hero">
-      <img src="moonrise.jpg" alt="The moonrise wallpaper: black tree silhouettes under a huge amber disc in a night sky fading from slate navy to dusty rose">
-      <figcaption>This session wears the <strong>moonrise</strong> look. Wallpaper: &ldquo;Silhouetted trees under moon and stars&rdquo; by <a href="https://unsplash.com/@saatvik_reddy_suravaram">saatvik 5554</a> on <a href="https://unsplash.com/illustrations/silhouetted-trees-under-moon-and-stars-jwBJOj6gakI">Unsplash</a>, free to use under the <a href="https://unsplash.com/license">Unsplash License</a>.</figcaption>
-    </figure>
-  </header>
+  <div class="hero">
+    <img src="hero-cat-960.jpg" alt="scoot — a grumpy ginger cat swats terminal windows sideways off a black background, under a huge white scoot wordmark" fetchpriority="high">
+    <h1>knocks your windows sideways.</h1>
+    <p class="tag">A scrolling Wayland compositor that runs without a GPU.</p>
+    <p class="live">You are in the live session. Install it to disk, or take it for a spin first.</p>
+  </div>
 
   <section>
     <h2>Install scoot</h2>
-    <div class="cards">
-      <div class="card">
+    <div class="paths">
+      <div>
         <h3>Graphical install</h3>
         <p>Click the <strong>Install</strong> icon on the desktop (Calamares), pick a <strong>scoot</strong> entry on the Desktop page &mdash; one per look, <strong>moonrise</strong> selected by default &mdash; and reboot into it.</p>
       </div>
-      <div class="card">
+      <div>
         <h3>From a terminal</h3>
         <p>On this live session, the installer is already on your PATH:</p>
-        <code class="cmd">sudo calamares</code>
+        <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="term-body">sudo calamares</div>
       </div>
     </div>
-    <p class="note">The installed system boots to a ReGreet login screen &mdash; it never autologins. Your live session's autologin exists only on this ISO. The installed system also locks after 4 idle minutes (dim at 2, screens off at 5); this live session never locks or blanks, so an install is never interrupted.</p>
+    <p class="dim">The installed system boots to a ReGreet login screen &mdash; it never autologins. Your live session's autologin exists only on this ISO. The installed system also locks after 4 idle minutes (dim at 2, screens off at 5); this live session never locks or blanks, so an install is never interrupted.</p>
   </section>
 
   <section>
     <h2>Your system config</h2>
-    <p>Installing puts your whole system in a flake at <strong>~/nixos-config</strong> &mdash; a git repo you own (<code>/etc/nixos</code> is a symlink to it, so every guide still works). Edit it as yourself, commit, and rebuild with <code class="cmd">nh os switch</code> (or <code>nixos-rebuild switch --flake ~/nixos-config#scoot</code>). Prefer a root-owned layout? Pick <strong>System-wide in /etc/nixos</strong> on the installer's Config-location page instead.</p>
+    <p>Installing puts your whole system in a flake at <strong>~/nixos-config</strong> &mdash; a git repo you own (<code class="inline">/etc/nixos</code> is a symlink to it, so every guide still works). Edit it as yourself, commit, and rebuild with <code class="cmd">nh os switch</code> (or <code class="cmd">nixos-rebuild switch --flake ~/nixos-config#scoot</code>). Prefer a root-owned layout? Pick <strong>System-wide in /etc/nixos</strong> on the installer's Config-location page instead.</p>
   </section>
 
   <section>
@@ -129,37 +207,33 @@
 
   <section>
     <h2>Try it</h2>
-    <div class="cards">
-      <div class="card">
+    <div class="paths">
+      <div>
         <h3>Open windows</h3>
         <p>Press <kbd>super</kbd> + <kbd>Return</kbd> a few times: each terminal lands in a scrolling column. <kbd>super</kbd> + <kbd>h</kbd>/<kbd>l</kbd> scrolls between them.</p>
       </div>
-      <div class="card">
+      <div>
         <h3>Ask the compositor</h3>
         <p>Everything scriptable goes through IPC:</p>
         <code class="cmd">scoot msg --help</code>
       </div>
-      <div class="card">
-        <h3>Change the look</h3>
-        <p>This session wears <strong>moonrise</strong>. The installed system can switch to <strong>music-desk</strong>, <strong>radial-burst</strong> or <strong>vinyl-sunset</strong> with one option:</p>
-        <code class="cmd">desktop.look = "music-desk";</code>
-      </div>
     </div>
+    <p>This session wears <strong>moonrise</strong>. The installed system can switch to <strong>music-desk</strong>, <strong>radial-burst</strong> or <strong>vinyl-sunset</strong> with one option: <code class="cmd">desktop.look = "music-desk";</code></p>
   </section>
 
   <section>
     <h2>Docs</h2>
     <ul class="links">
       <li><a href="https://github.com/scoot-sh/scoot">scoot source and README</a></li>
-      <li><a href="https://github.com/scoot-sh/scoot/blob/main/docs/nix.md">NixOS and home-manager guide</a></li>
-      <li><a href="https://github.com/scoot-sh/scoot/blob/main/docs/configuration.md">Configuration reference</a></li>
-      <li><a href="https://github.com/scoot-sh/scoot/blob/main/docs/scootbar/cli.md">Status bar reference</a></li>
+      <li><a href="https://www.scoot.sh/desktop">NixOS and home-manager guide</a></li>
+      <li><a href="https://www.scoot.sh/scoot/configure">Configuration reference</a></li>
+      <li><a href="https://www.scoot.sh/scootbar/cli">Status bar reference</a></li>
     </ul>
-    <p>This page lives at <code>file:///etc/scoot-welcome/index.html</code> &mdash; reopen it anytime from the <strong>Welcome to scoot</strong> launcher or the bar's <strong>Welcome</strong> button.</p>
+    <p class="dim">On this live session, this page lives at <code class="inline">file:///etc/scoot-welcome/index.html</code> &mdash; reopen it anytime from the <strong>Welcome to scoot</strong> launcher or the bar's <strong>Welcome</strong> button. The installed system does not ship it (or the Welcome button): after installing, the same guides live at <a href="https://www.scoot.sh/">scoot.sh</a>.</p>
   </section>
 
   <footer>
-    <p>scoot-iso live session &middot; moonrise look &middot; autologin is live-media-only; installed systems greet with ReGreet. Wallpaper: &ldquo;Silhouetted trees under moon and stars&rdquo; by saatvik 5554, Unsplash (<a href="https://unsplash.com/license">Unsplash License</a>).</p>
+    <p>scoot-iso live session &middot; moonrise look &middot; autologin is live-media-only; installed systems greet with ReGreet. Session wallpaper: &ldquo;Silhouetted trees under moon and stars&rdquo; by saatvik 5554, Unsplash (<a href="https://unsplash.com/license">Unsplash License</a>). Display type: League Spartan Black by Micah Rich and Tyler Finck, under the <a href="https://openfontlicense.org">SIL Open Font License 1.1</a>.</p>
   </footer>
 </main>
 </body>

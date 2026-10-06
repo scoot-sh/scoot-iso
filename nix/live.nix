@@ -70,30 +70,33 @@ let
 
   # The welcome page ships as a DIRECTORY (/etc/scoot-welcome symlinks
   # to it): Firefox opens file:///etc/scoot-welcome/index.html, so the
-  # hero's relative <img src> resolves beside it. A single-file etc
-  # entry lands in the store as a lone file, and no sibling image sits
-  # beside it there: the hero rendered as its alt text in a box. The
-  # hero is a web-sized JPEG (ImageMagick resize + quality), not the
-  # full wallpaper PNG. The build itself fails if any local <img src>
-  # in the page is not shipped in this directory (mirrored by the fast
-  # patch-consistency gate, so it fails in seconds, not at ISO build).
+  # hero's relative <img src> and the display font's relative url()
+  # resolve beside it. A single-file etc entry lands in the store as a
+  # lone file, and no sibling asset sits beside it there: the hero
+  # rendered as its alt text in a box. The hero is the scoot.sh cat art
+  # (site/public/hero-cat-960.jpg in the pinned scoot) and the headings
+  # wear the wordmark face (League Spartan 900, self-hosted woff2, OFL
+  # 1.1 — credited in the page footer): no CDN, no Google Fonts, the
+  # page works with no network. The build itself fails if any local
+  # <img src> or url() in the page is not shipped in this directory
+  # (mirrored by the fast patch-consistency gate, so it fails in
+  # seconds, not at ISO build).
   scootWelcomePage = pkgs.runCommand "scoot-welcome" { } ''
     mkdir -p $out
     cp ${../iso/welcome/index.html} $out/index.html
-    if [ -x ${pkgs.imagemagick}/bin/magick ]; then
-      ${pkgs.imagemagick}/bin/magick ${scoot}/docs/assets/wallpapers/moonrise.png -resize '1600x>' -quality 85 $out/moonrise.jpg
-    else
-      ${pkgs.imagemagick}/bin/convert ${scoot}/docs/assets/wallpapers/moonrise.png -resize '1600x>' -quality 85 $out/moonrise.jpg
-    fi
+    cp ${../iso/welcome/hero-cat-960.jpg} $out/hero-cat-960.jpg
+    cp ${../iso/welcome/league-spartan-latin-900.woff2} $out/league-spartan-latin-900.woff2
     ${pkgs.python3}/bin/python3 - $out ${../iso/welcome/index.html} <<'PYEOF'
     import os, re, sys
     outdir, page = sys.argv[1], open(sys.argv[2]).read()
     srcs = re.findall(r'<img[^>]+src="([^"]+)"', page)
     assert srcs, "welcome page has no <img src> to check"
-    missing = [s for s in srcs if "://" not in s and not os.path.isfile(os.path.join(outdir, s))]
+    fonts = [u for u in re.findall(r'url\(["\']?([^"\')]+)["\']?\)', page) if "://" not in u and not u.startswith("data:")]
+    assert fonts, "welcome page has no local font url() to check"
+    missing = [s for s in srcs + fonts if "://" not in s and not os.path.isfile(os.path.join(outdir, s))]
     if missing:
-        raise SystemExit("welcome <img src> not shipped beside index.html: " + ", ".join(missing))
-    print("welcome imgs OK: " + ", ".join(srcs))
+        raise SystemExit("welcome asset not shipped beside index.html: " + ", ".join(missing))
+    print("welcome assets OK: " + ", ".join(srcs + fonts))
     PYEOF
   '';
 in

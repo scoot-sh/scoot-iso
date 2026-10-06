@@ -4,12 +4,15 @@ A NixOS live + installer ISO with the scoot desktop: boot the USB stick
 and you are in a full scoot session; run the installer and the target
 gets the scoot desktop profile with the ReGreet login screen.
 
-> Screenshots: the live session, the welcome window and Calamares'
-> Desktop page will be attached here after the first green CI QEMU run
-> (they are produced reproducibly: the live and installed shots come
-> from `scripts/qemu-test.sh` via QMP screendump plus `scoot msg
-> screenshot --out`, never hand captures). Until then, no image here is
-> better than a stale one.
+> Screenshots (from `scripts/qemu-test.sh` via QMP screendump plus
+> `scoot msg screenshot --out`, never hand captures):
+>
+> ![The live session: scoot with the moonrise look and the welcome window](docs/screenshots/live-session.png)
+> ![The installed desktop after a real ReGreet login, with the moonrise bar layout](docs/screenshots/installed-desktop.png)
+>
+> The live session wears moonrise; the installed bar wears each look's
+> own example layout (workspaces and window title left, clock center,
+> system modules right).
 
 ## One command
 
@@ -65,13 +68,15 @@ Boot the stick in UEFI mode.
   **moonrise** look, its night-sky wallpaper, the scootbar status bar
   (themed by the look), and Firefox.
 - A welcome window on first login: what scoot is, the essential keys,
-  Install/Try pointers and doc links, designed in moonrise. It reopens
-  anytime from the **Welcome to scoot** launcher or the bar's
-  **Welcome** button. (Implementation note: it is a styled local page,
-  `file:///etc/scoot-welcome/index.html`, opened in Firefox — zero new
-  binaries on an ISO where every megabyte counts toward the 2 GB
-  release-asset cap, CSS theming straight from the look palette, and
-  links that just work.)
+  Install/Try pointers and doc links, designed in moonrise. On the
+  live session it reopens anytime from the **Welcome to scoot**
+  launcher or the bar's **Welcome** button. (Implementation note: it
+  is a styled local page, `file:///etc/scoot-welcome/index.html`,
+  opened in Firefox — zero new binaries on an ISO where every
+  megabyte counts toward the 2 GB release-asset cap, CSS theming
+  straight from the look palette, and links that just work.) The
+  installed system does not ship the page or the button — after
+  installing, the same guides live at <https://www.scoot.sh/>.
 - Calamares, with four **scoot** entries in the Desktop list (one per
   look: moonrise, music-desk, radial-burst, vinyl-sunset),
   **scoot (moonrise)** selected by default.
@@ -88,8 +93,7 @@ Boot the stick in UEFI mode.
 Picking scoot writes a flake to the target (source of truth: `iso/target/`
 in this repo), then builds the first system from it with
 `nixos-install --flake <config-dir>#scoot` (no input overrides,
-`--no-write-lock-file`, `--no-channel-copy`, `substitute = false`,
-network cut):
+`--no-write-lock-file`, `--no-channel-copy`):
 
 - `flake.nix`: inputs nixpkgs, scoot and home-manager pinned to the
   exact revs the ISO was built from, exposing
@@ -104,8 +108,10 @@ network cut):
   (`programs.scoot.greeter`: greetd running ReGreet under cage,
   wearing the chosen look too — its wallpaper behind a dark GTK theme
   with an accent Login button, except the light music-desk look which
-  gets the light theme), the
-  scootbar, `programs.nh` pointed at the flake itself, and the scoot
+  gets the light theme), the scootbar (each look's own example bar
+  layout: workspaces and window title left, clock center, system
+  modules and launcher buttons right), `programs.nh` pointed at the
+  flake itself, and the scoot
   Cachix substituter (so the install pulls binaries instead of
   compiling), plus the per-user desktop profile for the account created
   during install.
@@ -132,10 +138,16 @@ programs.scoot.desktop.look = "music-desk";
 # nh os switch
 ```
 
-Install runs fully offline, proven by `scripts/qemu-test.sh`, which
-installs inside an emptied network namespace, then reboots and
-rebuilds the installed system offline both ways (`nixos-rebuild build`
-and `nh os switch`). Three pieces make it work:
+With the network up, the install uses the normal substituters
+(cache.nixos.org plus the scoot Cachix above), so real hardware —
+whose kernel modules, filesystems and config differ from the ISO's
+shipped closure — installs like any other NixOS. With the network
+down, the install runs fully offline from the shipped store
+(`substitute = false`), proven by `scripts/qemu-test.sh`, which
+installs the canonical config inside an emptied network namespace,
+then reboots and rebuilds the installed system offline both ways
+(`nixos-rebuild build` and `nh os switch`). Three pieces make the
+offline path work:
 
 - Every flake input source the target needs rides the ISO (resolved
   from the target's own lock at ISO build time into
@@ -152,6 +164,13 @@ and `nh os switch`). Three pieces make it work:
   store does not consult the live store) and skips the legacy channel
   (`--no-channel-copy`: a flake system never reads channels, and the
   copy cannot work offline).
+- Before partitioning, the installer probes the substituters and logs
+  which mode it takes; offline, it pre-flights the target closure
+  against the live store first. When this hardware needs paths the
+  ISO does not ship, the install refuses before writing anything,
+  naming them ("connect to the network, or ..."). `qemu-test.sh`
+  proves both halves: a hardware tweak refuses offline before
+  partitioning, and succeeds with the network up.
 
 After install, with network,
 `nixos-rebuild switch --flake /etc/nixos#scoot` manages the system
@@ -243,6 +262,11 @@ checksum file as the trust anchor.
   (`nixosConfigurations.scoot-target-x86_64-linux`) against the ISO's
   `isoImage.storeContents` and check which path the installer tried to
   fetch in `/tmp/install.log` (saved by the QEMU script).
+- **Install refuses with "scoot install needs the network".**
+  This hardware needs store paths the ISO does not ship (the message
+  names them). Connect to the network and install again — with the
+  network up the install uses the normal substituters — or install on
+  hardware matching the ISO.
 - **Installed system boots to a black screen.**
   ReGreet (cage) is up but the scoot session failed: switch to a VT,
   log in, `journalctl --user-unit scoot-session.target -b` and
@@ -255,9 +279,9 @@ checksum file as the trust anchor.
   your copy) or `nixos-rebuild switch --use-remote-sudo --flake
   ~/nixos-config#scoot` — never plain `sudo nixos-rebuild`.
 - **The installed system autologins.**
-  That is a bug — the installer refuses Calamares' autologin snippets
-  for the scoot choice by design. Report it with the contents of
-  `/etc/nixos/configuration.nix`.
+  That is a bug — the installer ignores Calamares' autologin choice
+  for the scoot desktop by design (and warns that it did). Report it
+  with the contents of `/etc/nixos/configuration.nix`.
 
 ## Developing
 
