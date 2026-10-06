@@ -1,0 +1,184 @@
+name: ci
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+  pull_request:
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - name: flake check (patch-consistency + module eval)
+        run: nix flake check --print-build-logs
+      - name: render check (patch applies to the pinned sources)
+        run: |
+          nix build .#checks.x86_64-linux.patch-consistency --print-build-logs
+      - name: patched source check (same derivation the ISO overlays)
+        run: |
+          nix build .#packages.x86_64-linux.calamares-ext-patched-src -o result-patched-src --print-build-logs
+      - name: patched package check (proves the source keeps the expected layout)
+        run: |
+          nix build .#packages.x86_64-linux.calamares-nixos-scoot --print-build-logs
+      - name: "render check (installer writer matrix)"
+        run: |
+          sudo env PATH="$PATH" python3 tests/render_check.py result-patched-src/src/modules/nixos/main.py iso/target
+
+  build-iso:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - name: build ISO (x86_64-linux)
+        run: nix build .#packages.x86_64-linux.iso --print-build-logs -o result-iso
+      - name: measure + stage release files
+        id: size
+        run: |
+          iso=$(echo result-iso/iso/*.iso)
+          bytes=$(stat -c%s "$iso")
+          echo "iso=$iso" >> "$GITHUB_OUTPUT"
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          echo "## ISO size" >> "$GITHUB_STEP_SUMMARY"
+          echo "$iso: $bytes bytes ($(numfmt --to=iec "$bytes"))" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$bytes" -ge 2147483648 ]; then
+            echo "OVER 2 GB: GitHub release assets cap at 2 GB; see README (hosting)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoot-iso-x86_64-linux
+          path: result-iso/iso/*.iso
+          retention-days: 14
+
+  # The documented Docker one-command build, for x86_64: runs the pinned
+  # nixos/nix image, builds the ISO inside it, checks the output's
+  # checksum/size. (It rebuilds rather than reusing build-iso's output:
+  # the point is proving the documented command works end to end.)
+  docker-build:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: build ISO via Docker
+        run: |
+          ISO_FLAKE="github:scoot-sh/scoot-iso?ref=${{ github.sha }}" ISO_OUTDIR=docker-iso-out scripts/build-iso-docker.sh
+      - name: measure the Docker-built ISO
+        run: |
+          iso=$(echo docker-iso-out/*.iso)
+          bytes=$(stat -c%s "$iso")
+          echo "## Docker ISO size" >> "$GITHUB_STEP_SUMMARY"
+          echo "$iso: $bytes bytes ($(numfmt --to=iec "$bytes"))" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum "$iso" | tee SHA256SUMS-docker >> "$GITHUB_STEP_SUMMARY"
+      - name: upload Docker-built checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoot-iso-docker-checksum
+          path: SHA256SUMS-docker
+          retention-days: 14
+
+  # Probe: do GitHub's standard hosted runners expose /dev/kvm once a
+  # udev rule grants access? Runs on every PR in ~1 minute and gates the
+  # plan to run the full QEMU install test on ubuntu-latest below.
+  kvm-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: grant KVM access and probe
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+          [ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo "KVM node not readable/writable"; exit 1; }
+          sudo apt-get update -y -q
+          sudo apt-get install -y -q qemu-system-x86
+          qemu-system-x86_64 -accel help | grep -qi kvm && echo KVM-OK
+
+  # Full QEMU install test: boots the ISO, screenshots the live session
+  # and the welcome window, installs offline with the GUI-identical
+  # files and the network cut, reboots into ReGreet, logs in, checks
+  # scoot + bar + wallpaper via `scoot msg`, and screenshots the
+  # installed desktop. Runs on every PR on ubuntu-latest: the kvm-probe
+  # job above proves /dev/kvm is usable there with the udev rule.
+  # aarch64 builds run on the Asahi box (never on PR CI).
+  qemu-test:
+    needs: [build-iso, kvm-probe]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - name: enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+      - name: fetch ISO + build target files
+        uses: actions/download-artifact@v4
+        with:
+          name: scoot-iso-x86_64-linux
+          path: result-iso
+      - name: build target files
+        run: |
+          nix build '.#packages.x86_64-linux.target-flake' -o result-target-flake --print-build-logs
+          nix build '.#packages.x86_64-linux.target-configuration' -o result-target-config --print-build-logs
+          nix build '.#packages.x86_64-linux.target-hardware' -o result-target-hardware --print-build-logs
+          find result-iso -name '*.iso'
+      - name: run QEMU test
+        run: |
+          sudo apt-get update -y -q
+          sudo apt-get install -y -q qemu-system-x86 ovmf qemu-utils
+          iso=$(find result-iso -name '*.iso' | head -1)
+          echo "testing ISO: $iso ($(stat -c%s "$iso") bytes)"
+          scripts/qemu-test.sh \
+            --iso "$iso" \
+            --target-flake "$(readlink -f result-target-flake)" \
+            --target-config "$(readlink -f result-target-config)" \
+            --target-hardware "$(readlink -f result-target-hardware)" \
+            --workdir /tmp/scoot-iso-qemu \
+            --user scoot --password testpass123
+      - name: convert screenshots (fallback, always runs)
+        if: always()
+        run: python3 scripts/ppm-to-png.py /tmp/scoot-iso-qemu
+      - name: upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoot-iso-qemu
+          path: /tmp/scoot-iso-qemu/*.png
+          retention-days: 14
+
+  release:
+    needs: [build-iso, qemu-test]
+    if: startsWith(github.ref, 'refs/tags/iso-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: fetch the tested ISO (build-iso's artifact, not a rebuild)
+        uses: actions/download-artifact@v4
+        with:
+          name: scoot-iso-x86_64-linux
+          path: result-iso
+      - name: attach or redirect (2 GB release-asset cap)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          iso=$(find result-iso -name '*.iso' | head -1)
+          bytes=$(stat -c%s "$iso")
+          if [ "$bytes" -ge 2147483648 ]; then
+            echo "ISO is $(numfmt --to=iec "$bytes"), over GitHub's 2 GB release-asset cap."
+            echo "See README (hosting): publish the ISO out of band and attach checksums here."
+            sha256sum "$iso" > SHA256SUMS
+            gh release upload "${GITHUB_REF#refs/tags/}" SHA256SUMS --clobber
+          else
+            gh release upload "${GITHUB_REF#refs/tags/}" "$iso" --clobber
+          fi

@@ -1,0 +1,6 @@
+result
+result-*
+.direnv/
+*.iso
+scoot-iso-out/
+docker-iso-out/
