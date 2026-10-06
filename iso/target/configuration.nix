@@ -6,10 +6,10 @@
 # installer's path: overrides) and hardware-configuration.nix.
 # Installed with
 #   nixos-install --flake <config-dir>#scoot --root <root> --no-root-passwd
-#   --no-write-lock-file --option substitute false
-# so install works with the network cut: every input source the flake
-# needs rides the ISO (resolved from its own lock at ISO build time),
-# and any gap fails loud instead of phoning home.
+#   --no-write-lock-file --no-channel-copy
+# over the network: the normal substituters (cache.nixos.org plus the
+# scoot Cachix below), with paths the ISO already ships copied from the
+# live system's store instead of downloaded.
 # `hostname`, `timezone`, `LANG` and `nixosversion` here are Calamares'
 # stock variables (same names and defaults as
 # calamares-nixos-extensions' classic path: hostname falls back to
@@ -365,7 +365,7 @@ in
   # and the greeter session alike. Both Nerd faces therefore ride
   # fonts.packages (the bar's own face is the file above; this makes
   # the same family resolvable everywhere else too, and puts the
-  # faces in the offline closure). fc-list is on PATH by default
+  # faces in the closure the ISO ships). fc-list is on PATH by default
   # (nixpkgs' fontconfig module installs it), which the QEMU test's
   # font proof relies on.
   fonts.packages = with pkgs; [
