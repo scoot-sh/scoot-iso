@@ -6,9 +6,13 @@ configuration.nix from this repo, into ~/nixos-config by default or
 /etc/nixos) and installs it with `nixos-install --flake` and
 substitute=false, so install works with the network cut: every input
 source the installed flake needs rides the ISO (resolved from its own
-lock at ISO build time). No --override-input, so the installed
-flake.lock stays pristine github pins. Everything else (hostname, user,
-timezone, locale, firefox) mirrors the stock classic path's variables.
+lock at ISO build time), the target's closure is pre-copied from the
+live store (`nix copy --to`, since building into the target store does
+not consult the live store), and the legacy channel copy is skipped
+(--no-channel-copy: a flake system never reads channels, and the copy
+cannot work offline). No --override-input, so the installed flake.lock
+stays pristine github pins. Everything else (hostname, user, timezone,
+locale, firefox) mirrors the stock classic path's variables.
 
 Every anchor is asserted to occur exactly once, so a nixpkgs re-pin that
 changes the upstream files fails the ISO build loudly instead of silently
@@ -291,7 +295,19 @@ def main() -> None:
     # ISO build time), so no --override-input is needed and the
     # installed flake.lock stays pristine. substitute=false makes any
     # gap loud instead of phoning home; the lock is never rewritten
-    # (--no-write-lock-file).
+    # (--no-write-lock-file). The legacy channel is skipped
+    # (--no-channel-copy): the target is a pure flake system (registry
+    # pins, nh.flake, pristine lock) and never reads <nixpkgs> channels;
+    # copying the channel into an empty target store with
+    # substitute=false fails (proven in CI: the channel path is only in
+    # the live store, and `nix-env --set --store` does not copy across).
+    # For the same reason the target's closure is pre-copied from the
+    # live store first: `nix build --store <target>` does not consult
+    # the live store, so without the copy even a fully-shipped closure
+    # would fail. The toplevel is already in the ISO store (the
+    # reference target in nix/target-machine.nix names the exact system
+    # the test installs; its toplevel rides isoImage.storeContents), so
+    # the copy is pure disk I/O and the build that follows is a no-op.
     anchor_cmd = (
         '            "--option",\n'
         '            "build-dir",\n'
@@ -313,11 +329,15 @@ def main() -> None:
         + '            scoot_flake_ref = root_mount_point + "/home/" + scoot_cmd_user + "/nixos-config#scoot"\n'
         + '        else:\n'
         + '            scoot_flake_ref = root_mount_point + "/etc/nixos#scoot"\n'
+        + '        scoot_flake_dir = root_mount_point + "/home/" + scoot_cmd_user + "/nixos-config" if scoot_cmd_loc == "home" else root_mount_point + "/etc/nixos"\n'
+        + '        scoot_toplevel = subprocess.check_output(["nix", "eval", "--offline", "--option", "substitute", "false", "--no-write-lock-file", "--raw", scoot_flake_dir + "#nixosConfigurations.scoot.config.system.build.toplevel"], stderr=subprocess.STDOUT).decode().strip()\n'
+        + '        subprocess.check_output(["nix", "copy", "--to", root_mount_point, scoot_toplevel], stderr=subprocess.STDOUT)\n'
         + "        nixosInstallCmd.extend(\n"
         + "            [\n"
         + '                "--flake",\n'
         + '                scoot_flake_ref,\n'
         + '                "--no-write-lock-file",\n'
+        + '                "--no-channel-copy",\n'
         + '                "--option",\n'
         + '                "substitute",\n'
         + '                "false",\n'

@@ -105,6 +105,7 @@ jobs:
         run: |
           nix build '.#packages.x86_64-linux.target-flake' -o result-target-flake --print-build-logs
           nix build '.#packages.x86_64-linux.target-configuration' -o result-target-config --print-build-logs
+          nix build '.#packages.x86_64-linux.target-hardware' -o result-target-hardware --print-build-logs
           find result-iso -name '*.iso'
       - name: run QEMU test
         run: |
@@ -116,8 +117,9 @@ jobs:
             --iso "$iso" \
             --target-flake "$(readlink -f result-target-flake)" \
             --target-config "$(readlink -f result-target-config)" \
+            --target-hardware "$(readlink -f result-target-hardware)" \
             --workdir /tmp/scoot-iso-qemu \
-            --user kish --password testpass123
+            --user scoot --password testpass123
       - name: convert screenshots (fallback, always runs)
         if: always()
         run: python3 scripts/ppm-to-png.py /tmp/scoot-iso-qemu

@@ -9,6 +9,16 @@ the rendered files (look, nh.flake, no leftover markers, user stanzas),
 the flake.lock bytes, the git repo with its first commit, ownership, and
 the /etc/nixos symlink (home) or real dir (system).
 
+Then the canonical check: render the exact config scripts/qemu-test.sh
+installs (scoot-moonrise, home folder, user scoot, host scoot, UTC,
+en_US.UTF-8, 25.11, static QEMU hardware) and assert it evaluates to the
+same toplevel as nix/target-machine.nix (drvPath match). The ISO ships
+that toplevel in isoImage.storeContents, and the offline install
+(substitute=false into an empty target store) only works if the two are
+identical — so any drift fails here in seconds, not after a 45-minute
+QEMU run. SYSTEM env selects the platform (default x86_64-linux, as in
+CI's check job); evaluation only, no builds.
+
 Usage (CI runs it with sudo after building calamares-ext-patched-src):
   sudo python3 tests/render_check.py <generated-main.py> <repo-iso-target-dir>
 """
@@ -160,3 +170,48 @@ if failures:
     print(f"render-check FAILED ({len(failures)} problems)")
     sys.exit(1)
 print("render-check OK")
+
+# --- canonical check: the QEMU test's exact config == the mirror ------
+# The patch bakes @@SYSTEM@@ at ISO build time, so the generated flake
+# names its own system: read it back and compare against the mirror for
+# that same system. (SYSTEM env overrides only when set explicitly, for
+# manual runs against a re-targeted tree.)
+CANON_VARS = {
+    "hostname": "scoot",
+    "username": "scoot",
+    "fullname": "scoot",
+    "timezone": "UTC",
+    "LANG": "en_US.UTF-8",
+    "nixosversion": "25.11",
+}
+canon_root = "/tmp/render-check-canonical"
+shutil.rmtree(canon_root, ignore_errors=True)
+os.makedirs(canon_root + "/etc/nixos", exist_ok=True)
+open(canon_root + "/etc/nixos/configuration.nix", "w").write("# classic boilerplate\n")
+open(canon_root + "/etc/nixos/hardware-configuration.nix", "w").write("{ }\n")
+g = {"gs": FakeGS("scoot-moonrise", "home"), "libcalamares": FakeCal(),
+     "root_mount_point": canon_root, "variables": dict(CANON_VARS),
+     "os": os, "re": re, "subprocess": FakeSubprocess}
+warnings.clear()
+exec(branch, g)  # noqa: S102 (test harness for generated installer code)
+canon_flakedir = canon_root + "/home/scoot/nixos-config"
+# The test installs the static QEMU hardware, not the generator's
+# output (see scripts/qemu-test.sh): same file the mirror imports.
+shutil.copyfile(os.path.join(target_dir, "hardware-configuration.nix"),
+                os.path.join(canon_flakedir, "hardware-configuration.nix"))
+_flake = open(os.path.join(canon_flakedir, "flake.nix")).read()
+check("@@SYSTEM@@" not in _flake, "canonical flake.nix has an unbaked @@SYSTEM@@")
+canon_system = os.environ.get("SYSTEM") or re.search(r'system = "(x86_64-linux|aarch64-linux)"', _flake).group(1)
+got = subprocess.check_output(
+    ["nix", "eval", "--raw", canon_flakedir + "#nixosConfigurations.scoot.config.system.build.toplevel.drvPath"],
+    stderr=subprocess.DEVNULL).decode().strip()
+repo_root = os.path.abspath(os.path.join(target_dir, "..", ".."))
+want = subprocess.check_output(
+    ["nix", "eval", "--raw", repo_root + "#nixosConfigurations.scoot-target-" + canon_system + ".config.system.build.toplevel.drvPath"],
+    stderr=subprocess.DEVNULL).decode().strip()
+check(got == want, f"canonical toplevel drift: rendered {got} != mirror {want} ({canon_system})")
+if failures:
+    print(f"canonical-check FAILED ({len(failures)} problems)")
+    sys.exit(1)
+print(f"canonical-check OK ({canon_system}): {got}")
+shutil.rmtree(canon_root, ignore_errors=True)

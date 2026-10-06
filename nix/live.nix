@@ -33,7 +33,10 @@ let
     if [ ! -f "$flag" ]; then
       mkdir -p "$(dirname "$flag")"
       touch "$flag"
-      exec ${pkgs.firefox}/bin/firefox --new-window "file:///etc/scoot-welcome/index.html"
+      # Firefox's own stderr goes to a file: autostart children have no
+      # journal to speak into, and the profile service's errors (e.g.
+      # "profile cannot be loaded") only appear there.
+      exec ${pkgs.firefox}/bin/firefox --new-window "file:///etc/scoot-welcome/index.html" > /tmp/scoot-firefox.log 2>&1
     fi
   '';
 
@@ -205,11 +208,11 @@ in
       script = ''
         mkdir -p /home/nixos/.config/scoot
         cp ${liveConfig} /home/nixos/.config/scoot/config.toml
-        # The live home itself must belong to nixos: the autostarted
-        # Firefox creates its profile under it on first login, and a
-        # root-owned home fails with "profile cannot be loaded".
-        chown nixos:users /home/nixos
-        chown -R nixos:users /home/nixos/.config/scoot
+        # The live home must belong to nixos wholesale: the autostarted
+        # Firefox creates its profile under it on first login, and
+        # anything root-owned (previously even .config itself, which
+        # mkdir -p creates as root) breaks sandboxed writers.
+        chown -R nixos:users /home/nixos
       '';
     };
 

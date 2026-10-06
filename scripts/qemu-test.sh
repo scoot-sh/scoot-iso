@@ -4,30 +4,56 @@
 # 1. Boots the ISO (live session autobots into scoot; screendump it).
 # 2. Proves the live ISO ships our installer patch with byte-exact
 #    templates (repr-embedding check against the shipped main.py), then
-#    installs unattended with those files rendered for a test user, with
-#    the guest network cut (unshare -n) to prove the offline install.
+#    installs unattended with those files rendered for the canonical
+#    user, with the guest network cut (unshare -n) to prove the offline
+#    install: the target closure is pre-copied from the live store
+#    (`nix copy --to`, since building into the target store does not
+#    consult the live store) and nixos-install skips the legacy channel
+#    (--no-channel-copy: unneeded for a flake system, unworkable
+#    offline), exactly as the patched Calamares would.
 # 3. Reboots the installed disk into ReGreet (screendump), logs in, and
 #    checks scoot + bar + wallpaper via `scoot msg` and screenshots,
 #    all through the QEMU guest agent.
+#
+# The install exercises the CANONICAL config only (user scoot, host
+# scoot, UTC, en_US.UTF-8, 25.11, moonrise, home-folder layout, static
+# QEMU hardware): it must match nix/target-machine.nix exactly, whose
+# toplevel rides the ISO in isoImage.storeContents. With
+# `substitute = false` any drift fails here loudly instead of phoning
+# home; tests/render_check.py gates the drvPath match in CI's check
+# job. Real installs on real hardware still run nixos-generate-config
+# (their hardware varies); only this test uses the static file.
 #
 # Guest control uses QMP (screendump, send-key) and qemu-ga guest-exec
 # as root (enabled on live media by nixpkgs' graphical base and on the
 # target by services.qemuGuest.enable), so no credentials are baked
 # into the ISO. stdlib python3 + qemu-img + OVMF only.
 #
+# Arch: defaults target x86_64 (CI). For aarch64 (Asahi-native or
+# Apple Silicon+HVF) export QEMU_BIN=qemu-system-aarch64,
+# QEMU_MACHINE="virt,accel=hvf" (or "...,accel=kvm:tcg" under KVM),
+# QEMU_CPU=host, QEMU_MEM=3G and point OVMF_CODE/VARS at the AAVMF
+# firmware.
+#
 # Usage:
 #   scripts/qemu-test.sh --iso <iso> --target-flake <path>
-#     --target-config <path> --workdir <dir>
-#     [--user alice] [--password testpass123] [--system x86_64-linux]
+#     --target-config <path> --target-hardware <path> --workdir <dir>
+#     [--user scoot] [--password testpass123] [--system x86_64-linux]
 set -euo pipefail
 
 ISO=""
 TARGET_FLAKE=""
 TARGET_CONFIG=""
+TARGET_HARDWARE=""
 WORKDIR=""
-TEST_USER="alice"
+TEST_USER="scoot"
 TEST_PASS="testpass123"
 SYSTEM="x86_64-linux"
+QEMU_BIN="${QEMU_BIN:-qemu-system-x86_64}"
+QEMU_MACHINE="${QEMU_MACHINE:-q35,accel=kvm:tcg}"
+QEMU_CPU="${QEMU_CPU:-max}"
+QEMU_MEM="${QEMU_MEM:-4G}"
+QEMU_SMP="${QEMU_SMP:-4}"
 OVMF_CODE="${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.fd}"
 OVMF_VARS_SRC="${OVMF_VARS_SRC:-/usr/share/OVMF/OVMF_VARS_4M.fd}"
 
@@ -36,6 +62,7 @@ while [ $# -gt 0 ]; do
     --iso) ISO="$2"; shift 2 ;;
     --target-flake) TARGET_FLAKE="$2"; shift 2 ;;
     --target-config) TARGET_CONFIG="$2"; shift 2 ;;
+    --target-hardware) TARGET_HARDWARE="$2"; shift 2 ;;
     --workdir) WORKDIR="$2"; shift 2 ;;
     --user) TEST_USER="$2"; shift 2 ;;
     --password) TEST_PASS="$2"; shift 2 ;;
@@ -43,7 +70,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
-[ -n "$ISO" ] && [ -n "$TARGET_FLAKE" ] && [ -n "$TARGET_CONFIG" ] && [ -n "$WORKDIR" ] || {
+[ -n "$ISO" ] && [ -n "$TARGET_FLAKE" ] && [ -n "$TARGET_CONFIG" ] && [ -n "$TARGET_HARDWARE" ] && [ -n "$WORKDIR" ] || {
   echo "missing required args" >&2; exit 2
 }
 [ -f "$OVMF_CODE" ] || { echo "OVMF code missing: $OVMF_CODE" >&2; exit 2; }
@@ -205,8 +232,8 @@ start_vm() {
   local extra=()
   if [ "$boot" = d ]; then extra+=(-cdrom "$ISO" -boot order=d); else extra+=(-boot order=c); fi
   # shellcheck disable=SC2068
-  qemu-system-x86_64 \
-    -machine q35,accel=kvm:tcg -cpu max -m 4G -smp 4 \
+  $QEMU_BIN \
+    -machine "$QEMU_MACHINE" -cpu "$QEMU_CPU" -m "$QEMU_MEM" -smp "$QEMU_SMP" \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$VARS" \
     -drive file="$DISK",if=virtio,format=qcow2 \
@@ -269,6 +296,8 @@ for _ in $(seq 1 24); do
 done
 echo "--- welcome spawn env (what scoot autostart children inherit) ---"
 guest_exec 'cat /tmp/scoot-welcome-env.txt' || true
+echo "--- welcome browser log (firefox stderr; profile errors land here) ---"
+guest_exec 'tail -30 /tmp/scoot-firefox.log 2>/dev/null || echo NO-FIREFOX-LOG' || true
 msg_ok=0
 for _ in $(seq 1 24); do
   if guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock; [ -S "$SCOOT_SOCKET" ] && su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows"'; then msg_ok=1; break; fi
@@ -354,19 +383,28 @@ PYEOF
 
 echo "=== phase 2: unattended install, network cut ==="
 guest_exec 'lsmod | grep -E "^(ext4|vfat)" || echo NO-FS-MODULES-LOADED; modprobe ext4 && echo MODPROBE-EXT4-OK || echo MODPROBE-EXT4-FAIL; modprobe vfat && echo MODPROBE-VFAT-OK || echo MODPROBE-VFAT-FAIL; grep -E "ext4|vfat" /proc/filesystems || echo NO-FS-IN-PROCFILESYS' || true
-guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && partx -u /dev/vda && udevadm settle && lsblk -f /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && blkid /dev/vda1 /dev/vda2 && (mount /dev/vda2 /mnt || (dmesg | tail -25; blkid; exit 1)) && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && nixos-generate-config --root /mnt && echo PARTITION-OK'
+guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && partx -u /dev/vda && udevadm settle && lsblk -f /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && blkid /dev/vda1 /dev/vda2 && (mount /dev/vda2 /mnt || (dmesg | tail -25; blkid; exit 1)) && mount /dev/vda1 /mnt/boot && echo PARTITION-OK'
 # Render the target files from the SHIPPED main.py's embedded templates
 # (extracted exactly as the patch wrote them, then substituted with the
 # writer's own semantics for the default choice: scoot-moonrise in the
-# home folder), into /mnt/home/<user>/nixos-config with /etc/nixos
-# symlinked to it, committed to git and user-owned — byte for byte what
-# the GUI writes. Then install with the guest network namespace emptied
-# (unshare -n): any missing closure path fails here instead of phoning
-# home.
+# home folder for the CANONICAL user), into /mnt/home/<user>/nixos-config
+# with /etc/nixos symlinked to it, committed to git and root-owned —
+# byte for byte what the GUI writes (the installer hands the tree to
+# the user only after a successful install). The hardware file is the
+# static one the reference target imports (passed as an argv arg: argv
+# arrives intact, unlike bulk input-data): nixos-generate-config output
+# is non-deterministic (UUIDs, detected modules) and would break the
+# closure match below. Then install with the guest network namespace
+# emptied (unshare -n): any missing closure path fails here instead of
+# phoning home.
+# Canonical identity (must match nix/target-machine.nix exactly or the
+# pre-copied closure below is a different system): user scoot,
+# fullname scoot, host scoot, UTC, en_US.UTF-8, 25.11, moonrise.
+HW_CONTENT=$(cat "$TARGET_HARDWARE")
 guest_exec "
-python3 - '$TEST_USER' 'Test User' 'scoot-test' 'Etc/UTC' 'en_US.UTF-8' '25.11' '$SYSTEM' <<'PYEOF'
+python3 - '$TEST_USER' 'scoot' 'scoot' 'UTC' 'en_US.UTF-8' '25.11' '$SYSTEM' '$HW_CONTENT' <<'PYEOF'
 import ast, glob, os, subprocess, sys
-_, username, fullname, hostname, timezone, lang, nixosversion, system = sys.argv
+_, username, fullname, hostname, timezone, lang, nixosversion, system, hardware = sys.argv
 cands = glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')
 cands += glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')
 cands += glob.glob('/run/current-system/sw/share/calamares/modules/nixos/main.py')
@@ -404,11 +442,8 @@ os.makedirs(flakedir, exist_ok=True)
 open(flakedir + '/flake.nix', 'w').write(flake)
 open(flakedir + '/configuration.nix', 'w').write(config)
 open(flakedir + '/flake.lock', 'w').write(lock)
-_hw = open('/mnt/etc/nixos/hardware-configuration.nix').read()
-open(flakedir + '/hardware-configuration.nix', 'w').write(_hw)
-os.remove('/mnt/etc/nixos/configuration.nix')
-os.remove('/mnt/etc/nixos/hardware-configuration.nix')
-os.rmdir('/mnt/etc/nixos')
+open(flakedir + '/hardware-configuration.nix', 'w').write(hardware)
+os.makedirs('/mnt/etc', exist_ok=True)
 os.symlink('/home/' + username + '/nixos-config', '/mnt/etc/nixos')
 subprocess.check_output(['git', '-C', flakedir, 'init', '-b', 'main'])
 subprocess.check_output(['git', '-C', flakedir, 'add', '-A'])
@@ -421,7 +456,10 @@ ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc;
 ip -o link show
 echo '--- offline eval gate: the generated flake must resolve with no network and no substituters ---'
 nix eval --offline --option substitute false --no-write-lock-file '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel.drvPath' && echo EVAL-OFFLINE-OK
-unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --option build-dir /nix/var/nix/builds --option substitute false' > /tmp/install.log 2>&1
+echo '--- pre-copy: the target closure rides the ISO; copy it into the empty target store ---'
+topo=\$(nix eval --offline --option substitute false --no-write-lock-file --raw '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel') && echo \"TOPLEVEL: \$topo\"
+nix copy --to /mnt \"\$topo\" && echo PRECOPY-OK
+unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --no-channel-copy --option build-dir /nix/var/nix/builds --option substitute false' > /tmp/install.log 2>&1
 rc=\$?
 echo INSTALL-RC:\$rc
 tail -40 /tmp/install.log

@@ -7,7 +7,7 @@ installer."""
 import re
 import sys
 
-flake_path, config_path, lock_path, mirror_path, patch_path, item_path, location_path = sys.argv[1:]
+flake_path, config_path, lock_path, hw_path, mirror_path, patch_path, item_path, location_path, qemu_path = sys.argv[1:]
 
 failures = []
 
@@ -20,10 +20,12 @@ def check(condition: bool, message: str) -> None:
 flake = open(flake_path).read()
 config = open(config_path).read()
 lock = open(lock_path).read()
+hw = open(hw_path).read()
 mirror = open(mirror_path).read()
 patch = open(patch_path).read()
 item = open(item_path).read()
 location = open(location_path).read()
+qemu = open(qemu_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
 SCOOT_REV = "79aa76127d1670209e489ed08ff451056d95e932"
@@ -99,12 +101,29 @@ check("desktop.enable = true" in mirror, "mirror lost desktop.enable")
 check("autoLogin" not in mirror, "mirror must never autologin")
 check("home-manager.users.scoot.programs.scoot" in mirror, "mirror lost the home-manager user profile")
 
+# Static QEMU hardware: deterministic (device paths, no UUIDs), shared
+# by the reference target and the test. It travels into the guest as a
+# qemu-ga argv arg, so it must not contain single quotes (it rides
+# inside a single-quoted argv word through two shells).
+check("qemu-guest.nix" in hw, "hardware file lost the qemu-guest profile import")
+check('device = "/dev/vda2"' in hw and 'fsType = "ext4"' in hw, "hardware file lost the vda2 ext4 root")
+check('device = "/dev/vda1"' in hw and 'fsType = "vfat"' in hw, "hardware file lost the vda1 vfat /boot")
+check("by-uuid" not in hw and "UUID=" not in hw, "hardware file must not contain UUIDs (non-deterministic)")
+check("hostName" not in hw, "hardware file must not set the hostname (configuration.nix owns it)")
+check("'" not in hw, "hardware file must not contain single quotes (it travels as a single-quoted argv arg)")
+check("systemd-boot" in hw, "hardware file lost systemd-boot")
+check("../iso/target/hardware-configuration.nix" in mirror, "mirror lost the static-hardware import")
+check("uid = 1000" in mirror and 'group = "users"' in mirror, "mirror lost the pinned install uid/gid")
+
 # Patch script carries every placeholder and the install mechanism.
 for token in ("@@SCOOT_HM_USER@@", "@@SCOOT_USERS@@", "@@SCOOT_LOOK@@", "@@SCOOT_NH_FLAKE@@", "HM_USER_STANZA", "USERS_STANZA"):
     check(token in patch, f"patch script lost {token}")
 check("--flake" in patch, "patch script lost the flake install command")
-check('\"--override-input\"' not in patch, "patch script must not carry --override-input (inputs ship in the ISO instead)")
+check('"--override-input"' not in patch, "patch script must not carry --override-input (inputs ship in the ISO instead)")
 check('"--no-write-lock-file"' in patch, "patch script lost --no-write-lock-file (the installed lock must stay github-pinned)")
+check('"--no-channel-copy"' in patch, "patch script lost --no-channel-copy (the channel cannot copy offline; a flake system needs none)")
+check('"nix", "copy", "--to"' in patch, "patch script lost the closure pre-copy (building into the target store does not consult the live store)")
+check("config.system.build.toplevel" in patch, "patch script lost the pre-copy toplevel eval")
 check('\"substitute\"' in patch and '\"false\"' in patch, "patch script lost substitute=false (gaps must fail loud offline)")
 check('"/home/" + scoot_cmd_user + "/nixos-config#scoot"' in patch, "patch script lost the home-folder install ref")
 check('"/etc/nixos#scoot"' in patch, "patch script lost the system-wide install ref")
@@ -133,6 +152,26 @@ for _loc in ("home", "system"):
 check("mode: required" in location, "location page lost mode: required")
 check("method: legacy" in location, "location page lost method: legacy")
 check("nh os switch" in location, "location page lost the rebuild instruction")
+
+# Mirror identity must equal the test's canonical render identity.
+check('networking.hostName = "scoot"' in mirror, "mirror lost hostname scoot (test renders scoot)")
+check('time.timeZone = "UTC"' in mirror, "mirror lost timeZone UTC (test renders UTC)")
+check('users.users.scoot' in mirror, "mirror lost user scoot (test installs scoot)")
+check('description = "scoot"' in mirror, "mirror lost description scoot (test renders fullname scoot)")
+
+# QEMU test installs the canonical config only (else the shipped
+# closure would not match): user/host/timezone pinned to the mirror.
+check("python3 - '$TEST_USER' 'scoot' 'scoot' 'UTC' 'en_US.UTF-8' '25.11'" in qemu, "qemu-test lost the canonical render identity (must match the mirror)")
+check('--target-hardware) TARGET_HARDWARE="$2"' in qemu, "qemu-test lost the --target-hardware arg")
+check("[ -n \"$TARGET_HARDWARE\" ]" in qemu, "qemu-test lost the --target-hardware required-arg gate")
+check("nixos-generate-config --root" not in qemu, "qemu-test must not run nixos-generate-config (non-deterministic hardware breaks the closure match)")
+check("hardware-configuration.nix', 'w').write(hardware)" in qemu, "qemu-test lost the static-hardware write")
+check("HW_CONTENT=$(cat \"$TARGET_HARDWARE\")" in qemu, "qemu-test lost the host-side hardware read")
+check("nix copy --to /mnt" in qemu, "qemu-test lost the closure pre-copy")
+check("--no-channel-copy" in qemu, "qemu-test lost --no-channel-copy")
+check('QEMU_BIN="${QEMU_BIN:-qemu-system-x86_64}"' in qemu, "qemu-test lost the QEMU_BIN override (aarch64 runs)")
+check('QEMU_MACHINE="${QEMU_MACHINE:-q35,accel=kvm:tcg}"' in qemu, "qemu-test lost the QEMU_MACHINE override")
+check('QEMU_MEM="${QEMU_MEM:-4G}"' in qemu, "qemu-test lost the QEMU_MEM override")
 
 if failures:
     print("patch-consistency FAILED:")

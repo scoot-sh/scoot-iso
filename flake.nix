@@ -161,6 +161,13 @@
           target-configuration =
             nixpkgs.legacyPackages.${system}.runCommand "scoot-target-configuration.nix" { }
               "cp ${./iso/target/configuration.nix} $out";
+          # The static QEMU hardware the test installs (byte-identical
+          # every run; see iso/target/hardware-configuration.nix). The
+          # reference target imports this same file, so the shipped
+          # closure matches the installed system exactly.
+          target-hardware =
+            nixpkgs.legacyPackages.${system}.runCommand "scoot-target-hardware-configuration.nix" { }
+              "cp ${./iso/target/hardware-configuration.nix} $out";
           calamares-ext-patched-src = calamaresFor system;
           # The overlaid package itself (file copies only): proves the
           # patched source keeps the package's expected layout.
@@ -183,10 +190,12 @@
               ${./iso/target/flake.nix} \
               ${./iso/target/configuration.nix} \
               ${./iso/target/flake.lock} \
+              ${./iso/target/hardware-configuration.nix} \
               ${./nix/target-machine.nix} \
               ${./nix/calamares-patch.py} \
               ${./nix/packagechooser-scoot.conf} \
-              ${./nix/packagechooser-scoot-location.conf} && touch $out
+              ${./nix/packagechooser-scoot-location.conf} \
+              ${./scripts/qemu-test.sh} && touch $out
           '';
         }
       );

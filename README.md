@@ -69,8 +69,9 @@ Boot the stick in UEFI mode.
 
 Picking scoot writes a flake to the target (source of truth: `iso/target/`
 in this repo), then builds the first system from it with
-`nixos-install --flake <config-dir>#scoot` (inputs overridden to the
-ISO's store paths, `--no-write-lock-file`, network cut):
+`nixos-install --flake <config-dir>#scoot` (no input overrides, 
+`--no-write-lock-file`, `--no-channel-copy`, `substitute = false`,
+network cut):
 
 - `flake.nix`: inputs nixpkgs, scoot and home-manager pinned to the
   exact revs the ISO was built from, exposing
@@ -110,12 +111,28 @@ programs.scoot.desktop.look = "music-desk";
 # nh os switch
 ```
 
-Install runs with the flake inputs overridden to the ISO's store paths,
-and the target closure ships in the ISO (`isoImage.storeContents`), so
-install works with the network cut — proven by `scripts/qemu-test.sh`,
-which installs inside an emptied network namespace, then reboots and
+Install runs fully offline, proven by `scripts/qemu-test.sh`, which
+installs inside an emptied network namespace, then reboots and
 rebuilds the installed system offline both ways (`nixos-rebuild build`
-and `nh os switch`). After install, with network,
+and `nh os switch`). Three pieces make it work:
+
+- Every flake input source the target needs rides the ISO (resolved
+  from the target's own lock at ISO build time into
+  `isoImage.storeContents`), so no `--override-input` is needed and
+  the installed `flake.lock` stays pristine `github:` pins.
+- The reference target (`nix/target-machine.nix`) names the exact
+  system the test installs (same inputs, user, host, options, look,
+  static QEMU hardware), so its toplevel — also in
+  `isoImage.storeContents` — is the installed closure bit for bit.
+  `tests/render_check.py` gates that they evaluate to the same
+  toplevel (drvPath match), so they cannot drift.
+- The installer pre-copies that closure from the live store into the
+  empty target store (`nix copy --to`, since building into the target
+  store does not consult the live store) and skips the legacy channel
+  (`--no-channel-copy`: a flake system never reads channels, and the
+  copy cannot work offline).
+
+After install, with network,
 `nixos-rebuild switch --flake /etc/nixos#scoot` manages the system
 normally (the symlink resolves it to your home copy).
 
