@@ -219,6 +219,7 @@ start_vm() {
     -drive file="$DISK",if=virtio,format=qcow2 \
     ${extra[@]} \
     -device virtio-gpu-pci -display none \
+    -device qemu-xhci -device usb-tablet -device usb-kbd \
     -serial file:"$WORKDIR/serial-$boot.log" \
     -netdev user,id=net0,hostfwd=tcp::10022-:22 \
     -device virtio-net-pci,netdev=net0 \
@@ -440,30 +441,88 @@ sleep 30 # ReGreet should be up
 qmp screendump "{\"filename\": \"$WORKDIR/regreet.ppm\"}" >/dev/null
 echo "greeter screenshot: $WORKDIR/regreet.ppm"
 guest_exec 'systemctl is-active greetd && pgrep -af "[c]age|[r]egreet" | head -5 && echo GREETER-OK'
-# Type the password into ReGreet (best effort; screenshots show the outcome).
-# QMP send-key takes qcode names; password is [a-z0-9] by construction.
-type_into_greeter() {
-  local text="$1"
-  local keys
-  keys=$(python3 -c "
-import sys
-m = {'-':'minus','=':'equal','/':'slash',' ':'spc'}
-out = []
-for ch in sys.argv[1]:
-    if ch.isdigit(): out.append('{\"type\":\"qcode\",\"data\":\"' + ch + '\"}')
-    elif ch.isalpha(): out.append('{\"type\":\"qcode\",\"data\":\"' + ch.lower() + '\"}')
-    else: out.append('{\"type\":\"qcode\",\"data\":\"' + m.get(ch, 'spc') + '\"}')
-print('[' + ','.join(out) + ']')
-" "$text")
-  qmp send-key "{\"keys\": $keys, \"hold-time\": 50}" >/dev/null
+# Log in through ReGreet for real (HARD: the test fails here if login
+# does not land). ReGreet 0.5 shows User+Session preselected with a
+# Login button but no password field: clicking Login reveals it, and
+# only then does typing the password + Enter log in. Keyboard-only
+# send-key can never summon the field, so the click goes over the
+# absolute pointer (usb-tablet above) via QMP input-send-event. (The
+# virt board has no PS/2 keyboard either, so usb-kbd above is what the
+# password typing lands on.)
+# Coordinates are fractions of the 0..32767 absolute range, so any
+# framebuffer size lands on the button (Login sits near (0.684w, 0.596h)
+# at the 1280x800 virtio-gpu default, measured from the greeter
+# screenshot; CI renders the same 1280x800 frame).
+qmp_click() { # qmp_click <xfrac> <yfrac>
+  local x y
+  x=$(python3 -c "print(int(32767 * float('$1')))")
+  y=$(python3 -c "print(int(32767 * float('$2')))")
+  qmp input-send-event "{\"events\": [{\"type\": \"abs\", \"data\": {\"axis\": \"x\", \"value\": $x}}, {\"type\": \"abs\", \"data\": {\"axis\": \"y\", \"value\": $y}}, {\"type\": \"btn\", \"data\": {\"down\": true, \"button\": \"left\"}}]}" >/dev/null
+  sleep 0.5
+  qmp input-send-event '{"events": [{"type": "btn", "data": {"down": false, "button": "left"}}]}' >/dev/null
   sleep 1
 }
-type_into_greeter "$TEST_USER"
-qmp send-key '{"keys": [{"type":"qcode","data":"tab"}], "hold-time": 50}' >/dev/null
-sleep 1
-type_into_greeter "$TEST_PASS"
-qmp send-key '{"keys": [{"type":"qcode","data":"ret"}], "hold-time": 50}' >/dev/null
-sleep 25
+# QMP send-key takes qcode names; password is [a-z0-9] by construction.
+# One key per send-key call: a single call presses its whole key list
+# as a chord, so typing means one call per character.
+type_into_greeter() {
+  local text="$1" ch key
+  local i
+  for ((i = 0; i < ${#text}; i++)); do
+    ch="${text:$i:1}"
+    case "$ch" in
+      [0-9]) key="$ch" ;;
+      [a-zA-Z]) key=$(printf '%s' "$ch" | tr 'A-Z' 'a-z') ;;
+      -) key="minus" ;;
+      =) key="equal" ;;
+      /) key="slash" ;;
+      ' ') key="spc" ;;
+      *) echo "type_into_greeter: unsupported char $ch" >&2; return 1 ;;
+    esac
+    qmp send-key "{\"keys\": [{\"type\":\"qcode\",\"data\":\"$key\"}], \"hold-time\": 50}" >/dev/null
+    sleep 0.3
+  done
+  sleep 1
+}
+# session_up: the real login landed (the user's scoot owns an IPC
+# socket and its service runs under the user manager).
+session_up() {
+  guest_exec 'ls /run/user/1000/scoot.sock >/dev/null 2>&1 && sudo -u '$TEST_USER' env XDG_RUNTIME_DIR=/run/user/1000 systemctl --user is-active scoot.service >/dev/null 2>&1 && echo SESSION-UP' 2>/dev/null | grep -q SESSION-UP
+}
+attempt_login() {
+  # Escape first: returns a half-typed prompt to the user-select state,
+  # so a retry never appends a full password to a partial one.
+  qmp send-key '{"keys": [{"type":"qcode","data":"esc"}], "hold-time": 50}' >/dev/null
+  sleep 2
+  qmp_click 0.684 0.596 # Login: reveals the password field
+  sleep 4
+  type_into_greeter "$TEST_PASS"
+  qmp send-key '{"keys": [{"type":"qcode","data":"ret"}], "hold-time": 50}' >/dev/null
+}
+echo "=== phase 3a: log in through ReGreet (hard) ==="
+attempt_login
+login_ok=0
+for _ in $(seq 1 12); do
+  if session_up; then login_ok=1; break; fi
+  sleep 5
+done
+if [ "$login_ok" != 1 ]; then
+  echo "login attempt 1 missed; clicking Login again and retyping"
+  qmp screendump "{\"filename\": \"$WORKDIR/login-retry.ppm\"}" >/dev/null || true
+  attempt_login
+  for _ in $(seq 1 12); do
+    if session_up; then login_ok=1; break; fi
+    sleep 5
+  done
+fi
+if [ "$login_ok" != 1 ]; then
+  echo "LOGIN-FAIL: no user session after two ReGreet attempts" >&2
+  qmp screendump "{\"filename\": \"$WORKDIR/login-failure.ppm\"}" >/dev/null || true
+  guest_exec 'loginctl list-sessions || true; pgrep -au 1000 | head -10 || true; systemctl status greetd --no-pager | head -20 || true'
+  exit 1
+fi
+echo "LOGIN-OK: real ReGreet login as $TEST_USER"
+sleep 5 # let bar + wallpaper settle
 qmp screendump "{\"filename\": \"$WORKDIR/installed-session.ppm\"}" >/dev/null
 echo "installed session screenshot: $WORKDIR/installed-session.ppm"
 
@@ -487,72 +546,77 @@ grep -o "\"type\": \"[a-z]*\"" /home/'$TEST_USER'/nixos-config/flake.lock | sort
 grep -o "\"rev\": \"[a-f0-9]*\"" /home/'$TEST_USER'/nixos-config/flake.lock
 ! grep -q "path:/nix/store" /home/'$TEST_USER'/nixos-config/flake.lock && echo LOCK-OK
 '
-echo "=== phase 3c: scoot msg checks via guest agent ==="
-# A login through ReGreet may or may not have landed (best effort
-# above); these checks run a headless session either way, proving the
-# installed binaries + desktop-profile config work. The bar and the
-# wallpaper daemon are checked first: the profile starts scootbar
-# through graphical-session.target and scootbg for the look's shipped
-# wallpaper, so both must be resident in a logged-in session.
+echo "=== phase 3c: prove the REAL logged-in session (hard) ==="
+# No headless stand-in: these run against the session the ReGreet login
+# above started, as the installed user. Any failure exits the test.
 guest_exec '
-uid=$(id -u '$TEST_USER')
-export XDG_RUNTIME_DIR=/run/user/$uid
-mkdir -p $XDG_RUNTIME_DIR
-chown '$TEST_USER':users $XDG_RUNTIME_DIR
-chmod 700 $XDG_RUNTIME_DIR
-pgrep -ax scoot || true
-echo "--- bar + wallpaper ---"
-pgrep -af scootbar | head -3 || echo NO-SCOOTBAR-PROC
-pgrep -af scootbg | head -3 || echo NO-SCOOTBG-PROC
-su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active scootbar" || echo BAR-UNIT-NOT-ACTIVE
-cat > /tmp/scoot-check.sh <<'"'"'CHEOF'"'"'
-export XDG_RUNTIME_DIR=__RUNTIME__
-export WAYLAND_DISPLAY=scoot-test-0
-echo HEADLESS-START
-scoot --headless --outputs 1 -- foot > /tmp/headless.log 2>&1 &
-sleep 5
-for sub in version outputs windows; do
-  echo "MSG-$sub"
-  timeout 60 scoot msg $sub || echo "MSG-$sub-FAIL"
-done
-echo MSG-SCREENSHOT
-timeout 120 scoot msg screenshot --out /tmp/installed-scoot.png && echo SCREENSHOT-OK || echo SCREENSHOT-FAIL
-CHEOF
-sed -i "s|__RUNTIME__|$XDG_RUNTIME_DIR|" /tmp/scoot-check.sh
-chown '$TEST_USER':users /tmp/scoot-check.sh
-su -s /bin/sh '$TEST_USER' -c "/bin/sh /tmp/scoot-check.sh"
+set -e
+export XDG_RUNTIME_DIR=/run/user/1000
+export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock
+test -S "$SCOOT_SOCKET" && echo SOCKET-OK
+echo "--- compositor IPC from inside the session ---"
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg version" && echo MSG-VERSION-OK
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg outputs" | tee /tmp/outputs.txt && echo MSG-OUTPUTS-OK
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows" && echo MSG-WINDOWS-OK
+echo "--- the bar reserves space (usable vs rect) ---"
+python3 - /tmp/outputs.txt <<'"'"'PYEOF'"'"'
+import json, sys
+data = json.load(open(sys.argv[1]))
+# The reply is the internally-tagged Response envelope
+# ({"type": "outputs", "outputs": [...]}); accept a bare list too.
+outputs = data.get("outputs", data) if isinstance(data, dict) else data
+assert outputs, "no outputs reported"
+for o in outputs:
+    rect, usable = o["rect"], o["usable"]
+    print("output:", o.get("name"), "rect:", rect, "usable:", usable)
+    assert usable["height"] < rect["height"], "bar reserves no space: usable == rect"
+print("BAR-SPACE-OK")
+PYEOF
+echo "--- bar + wallpaper resident ---"
+pgrep -u 1000 -x scootbar && echo BAR-PROC-OK
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=/run/user/1000 systemctl --user is-active scootbar" && echo BAR-UNIT-OK
+# Full-command match (the daemon comm is the .scootbg-wrapped binary,
+# not "scootbg"): the bracket dodges pgrep matching our own sh -c line.
+pgrep -u 1000 -f '[s]cootbg-wrapped' && echo BG-PROC-OK
+echo "--- the compositor'"'"'s own screenshot path ---"
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET timeout 120 scoot msg screenshot --out /tmp/installed-scoot.png" && echo SCREENSHOT-OK
 echo MSG-OK
 '
-# Pull the IPC screenshot back to the host for the artifacts, in small
-# pieces: only small guest->host payloads are proven, so the
-# reassembled PNG is validated, and the test carries on with the QMP
-# screendump alone if the fetch fails (the guest-side SCREENSHOT-OK
-# already proves scoot's own screenshot path).
-guest_exec 'split -b 100K -d /tmp/installed-scoot.png /tmp/shot_ && echo SPLIT-OK || echo SPLIT-FAIL'
+# Pull the IPC screenshot back to the host for the artifacts, in SMALL
+# pieces: only small guest->host payloads are proven on this channel,
+# so 32K chunks (base64 ~44K each) stay far under the ~100K size where
+# the old loop's reassembled PNGs truncated. The loop runs until the
+# first missing piece and then requires the reassembled bytes to equal
+# the guest's byte count exactly: a short fetch fails the test.
+guest_exec 'stat -c%s /tmp/installed-scoot.png && split -b 32768 -d /tmp/installed-scoot.png /tmp/shot_ && echo SPLIT-OK'
+want=$(guest_exec 'stat -c%s /tmp/installed-scoot.png' | tail -1)
+echo "guest screenshot bytes: $want"
 : > "$WORKDIR/shot-parts.b64"
 pieces=0
-while [ "$pieces" -lt 20 ]; do
+while [ "$pieces" -lt 100 ]; do
   frag=$(printf '/tmp/shot_%02d' "$pieces")
-  out=$(guest_exec "base64 -w0 $frag 2>/dev/null || echo MISSING") || break
-  if printf '%s' "$out" | grep -q '^MISSING$'; then break; fi
+  out=$(guest_exec "test -f $frag && base64 -w0 $frag || echo MISSING") || { echo "PNG-FETCH-FAIL: guest-exec failed on $frag" >&2; exit 1; }
   body=$(printf '%s' "$out" | grep -v '^rc:' || true)
-  printf '%s' "$body" >> "$WORKDIR/shot-parts.b64"
+  if [ "$body" = "MISSING" ]; then break; fi
+  # One piece per line: base64 chunks carry their own padding, and a
+  # decoder fed the raw concatenation stops at the first chunk's `=`
+  # (that truncation is what the old loop shipped). The validator
+  # decodes line by line and requires the exact guest byte count.
+  printf '%s\n' "$body" >> "$WORKDIR/shot-parts.b64"
   pieces=$((pieces + 1))
-  if [ "${#body}" -lt 100000 ]; then break; fi
 done
-if [ "$pieces" -gt 0 ] && python3 - "$WORKDIR/shot-parts.b64" "$WORKDIR/installed-scoot.png" <<'EOF'
+[ "$pieces" -gt 0 ] || { echo "PNG-FETCH-FAIL: no pieces fetched" >&2; exit 1; }
+python3 - "$WORKDIR/shot-parts.b64" "$WORKDIR/installed-scoot.png" "$want" <<'EOF'
 import base64, sys
-raw = base64.b64decode(open(sys.argv[1]).read())
+parts = open(sys.argv[1]).read().split()
+raw = b"".join(base64.b64decode(p) for p in parts)
 assert raw[:8] == b"\x89PNG\r\n\x1a\n", "reassembled bytes are not a PNG"
-assert len(raw) > 10000, f"suspiciously small screenshot: {len(raw)}"
+want = int(sys.argv[3])
+assert len(raw) == want, f"truncated fetch: reassembled {len(raw)} != guest {want}"
 open(sys.argv[2], "wb").write(raw)
-print(f"screenshot saved: {sys.argv[2]} ({len(raw)} bytes)")
+print(f"screenshot saved: {sys.argv[2]} ({len(raw)} bytes in {len(parts)} pieces, complete)")
 EOF
-then
-  echo "PNG-OK"
-else
-  echo "PNG-FETCH-WARN: continuing with the QMP screendump alone"
-fi
+echo "PNG-OK"
 echo "=== phase 3e: offline rebuilds on the installed system ==="
 # The network namespace is emptied, so success proves the store holds
 # everything a maintainable flake needs; the lock hash before/after

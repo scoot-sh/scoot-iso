@@ -101,7 +101,10 @@ network cut):
   (`nixosModules.scoot`, `nixosModules.scootbar`) and home-manager
   (`nixosModules.home-manager`), enables the desktop profile with the
   chosen look, the session entry, the ReGreet greeter
-  (`programs.scoot.greeter`: greetd running ReGreet under cage), the
+  (`programs.scoot.greeter`: greetd running ReGreet under cage,
+  wearing the chosen look too — its wallpaper behind a dark GTK theme
+  with an accent Login button, except the light music-desk look which
+  gets the light theme), the
   scootbar, `programs.nh` pointed at the flake itself, and the scoot
   Cachix substituter (so the install pulls binaries instead of
   compiling), plus the per-user desktop profile for the account created

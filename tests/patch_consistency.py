@@ -30,7 +30,7 @@ qemu = open(qemu_path).read()
 docker = open(docker_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
-SCOOT_REV = "79aa76127d1670209e489ed08ff451056d95e932"
+SCOOT_REV = "4ad6388814bd175330cea32830756a2393545ae8"
 HM_REV = "f53f3267f5d009dd8f99443505e609389d7ff267"
 CACHIX_URL = "https://scoot-sh.cachix.org"
 CACHIX_KEY = "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
@@ -167,6 +167,37 @@ check('time.timeZone = "UTC"' in mirror, "mirror lost timeZone UTC (test renders
 check('users.users.scoot' in mirror, "mirror lost user scoot (test installs scoot)")
 check('description = "scoot"' in mirror, "mirror lost description scoot (test renders fullname scoot)")
 
+# Themed installed greeter: the look's wallpaper behind ReGreet plus a
+# dark GTK theme and accent CSS through nixpkgs' ReGreet options, in
+# the template for every look and mirrored for the canonical one.
+for _side, _text in (("target configuration.nix", config), ("mirror", mirror)):
+    check("programs.scoot.greeter.background" in _text, f"{_side} lost the greeter background (the look's wallpaper)")
+    check("greeterWallpapers" in _text, f"{_side} lost the per-look wallpaper map")
+    check("vinyl-sunset = null" in _text, f"{_side} lost the vinyl-sunset no-wallpaper case")
+    check("services.displayManager.regreet" in _text, f"{_side} lost the ReGreet theme block")
+    check("Adwaita-dark" in _text, f"{_side} lost the dark GTK theme")
+    check("application_prefer_dark_theme" in _text, f"{_side} lost the dark-mode signal")
+    check("suggested-action" in _text, f"{_side} lost the Login accent CSS")
+    check("gnome-themes-extra" in _text, f"{_side} lost the theme package (must be a theme, no daemons)")
+check('music-desk = inputs.scoot.outPath' in config, "template greeter wallpaper must come from the scoot tree (inputs.scoot.outPath)")
+check('moonrise = scoot.outPath' in mirror, "mirror greeter wallpaper must come from the scoot tree (scoot.outPath)")
+import os as _os
+_repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(flake_path))))
+_root_flake = open(_os.path.join(_repo_root, "flake.nix")).read()
+check("specialArgs" in _root_flake and "inherit scoot" in _root_flake, "flake.nix lost the mirror's scoot specialArg (greeter wallpaper)")
+
+# Every local <img src> in the welcome page must resolve inside the
+# shipped directory: either a file beside the page in iso/welcome/ or
+# a name the live.nix directory derivation produces (e.g. the
+# converted hero). Otherwise Firefox shows alt text in a box.
+import re as _re
+_welcome_page = open(_os.path.join(_repo_root, "iso/welcome/index.html")).read()
+_welcome_srcs = [s for s in _re.findall(r'<img[^>]+src="([^"]+)"', _welcome_page) if "://" not in s]
+check(_welcome_srcs, "welcome page has no local <img src> to pin (the hero must be in the shipped dir)")
+for _src in _welcome_srcs:
+    _beside = _os.path.isfile(_os.path.join(_repo_root, "iso/welcome", _src))
+    check(_beside or _src in live, f"welcome <img src={_src}> resolves neither beside the page nor in the live derivation")
+
 # Live session seeds the welcome browser's profile (Firefox's
 # default-profile auto-creation fails on live media: "Profile Missing").
 check(".mozilla/firefox/welcome.default" in live, "live session lost the seeded firefox profile dir")
@@ -174,6 +205,17 @@ check("profiles.ini" in live and "installs.ini" in live, "live session lost the 
 check("browser.aboutwelcome.enabled" in live, "live session lost the first-run suppression")
 check("scoot-firefox.log" in live, "live session lost the firefox stderr capture")
 check("chown -R nixos:users /home/nixos" in live, "live session lost the recursive home chown")
+
+# The welcome page ships as a DIRECTORY (Firefox opens
+# file:///etc/scoot-welcome/index.html, so relative <img src> resolves
+# beside it). A lone-file etc entry strands the image in the store with
+# nothing beside the page: the hero rendered as alt text.
+check('environment.etc."scoot-welcome".source' in live, "live session lost the welcome directory derivation")
+check('"scoot-welcome/index.html".source' not in live, "live session still ships the lone-file welcome page (image 404s)")
+check("moonrise.jpg" in live, "live session lost the web-sized welcome hero")
+check("resize" in live and "quality" in live, "live session lost the hero downsize (full wallpaper PNG is not web-sized)")
+check("not shipped beside index.html" in live, "live session lost the build-time <img src> resolution check")
+check("imagemagick" in live, "live session lost the hero converter")
 
 # No debug scaffolding ships: no guest password, no openssh on the
 # live image, no sshpass anywhere near the test.
@@ -197,6 +239,29 @@ check("--no-channel-copy" in qemu, "qemu-test lost --no-channel-copy")
 check('QEMU_BIN="${QEMU_BIN:-qemu-system-x86_64}"' in qemu, "qemu-test lost the QEMU_BIN override (aarch64 runs)")
 check('QEMU_MACHINE="${QEMU_MACHINE:-q35,accel=kvm:tcg}"' in qemu, "qemu-test lost the QEMU_MACHINE override")
 check('QEMU_MEM="${QEMU_MEM:-4G}"' in qemu, "qemu-test lost the QEMU_MEM override")
+
+# Real ReGreet login over the absolute pointer (hard, not best effort):
+# the tablet device, the Login click that reveals the password field,
+# the session proof, and the logged-in session's bar/wallpaper checks.
+check("usb-tablet" in qemu, "qemu-test lost the usb-tablet (ReGreet needs a pointer)")
+check("usb-kbd" in qemu, "qemu-test lost the usb-kbd (virt has no PS/2: password typing lands nowhere)")
+check("input-send-event" in qemu, "qemu-test lost the QMP absolute-click login drive")
+check("LOGIN-OK" in qemu, "qemu-test lost the hard login proof")
+check("LOGIN-FAIL" in qemu, "qemu-test lost the login-failure exit (login must be hard, not best effort)")
+check("--headless" not in qemu, "qemu-test still runs a headless stand-in instead of the real logged-in session")
+check("BAR-SPACE-OK" in qemu, "qemu-test lost the bar-reserves-space proof (usable vs rect)")
+check("BAR-PROC-OK" in qemu and "BG-PROC-OK" in qemu, "qemu-test lost the resident bar/wallpaper proof")
+check("SCREENSHOT-OK" in qemu, "qemu-test lost the guest-side screenshot proof")
+
+# Complete PNG fetch: small chunks until the first missing piece, then
+# an exact byte-count match against the guest. The old loop broke on a
+# ~100K base64-size guess and shipped 102,400-byte truncations (worse,
+# its reassembly decoded the raw concatenation, which stops at the
+# first chunk's base64 padding: one chunk, always).
+check("split -b 32768" in qemu, "qemu-test lost the small screenshot chunks (large payloads truncate)")
+check("piece per line" in qemu, "qemu-test lost the per-line piece decode (concatenated padding truncates)")
+check("truncated fetch" in qemu, "qemu-test lost the exact byte-count fetch gate")
+check("PNG-FETCH-WARN" not in qemu, "qemu-test still tolerates a truncated screenshot fetch")
 
 # Docker one-command build: image pinned by digest (never :latest),
 # check mode for fast plumbing validation, caller-owned output.

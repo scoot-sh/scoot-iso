@@ -12,7 +12,7 @@
 # moonrise, home-folder layout) evaluates to this same toplevel
 # (drvPath match), so the two cannot drift: with `substitute = false`
 # the installed system's closure must already be in the ISO's store.
-{ config, pkgs, ... }:
+{ config, pkgs, scoot, ... }:
 
 {
   imports = [ ../iso/target/hardware-configuration.nix ];
@@ -72,6 +72,44 @@
   };
 
   programs.scootbar.enable = true;
+
+  # Themed ReGreet, exactly as iso/target/configuration.nix renders
+  # for the canonical moonrise install (same Nix code, so the drvPath
+  # gate holds): the look's wallpaper behind a dark Adwaita login.
+  programs.scoot.greeter.background =
+    let
+      greeterWallpapers = {
+        moonrise = scoot.outPath + "/docs/assets/wallpapers/moonrise.png";
+        music-desk = scoot.outPath + "/docs/assets/wallpapers/music-desk.png";
+        radial-burst = scoot.outPath + "/docs/assets/wallpapers/radial-burst.png";
+        vinyl-sunset = null;
+      };
+    in
+    greeterWallpapers.${config.programs.scoot.desktop.look} or null;
+
+  services.displayManager.regreet =
+    let
+      look = config.programs.scoot.desktop.look;
+      dark = look != "music-desk";
+      accents = {
+        moonrise = "#FFA45C";
+        music-desk = "#3D579A";
+        radial-burst = "#31a9e5";
+        vinyl-sunset = "#E59560";
+      };
+      accent = accents.${look} or "#FFA45C";
+    in
+    {
+      theme = {
+        package = pkgs.gnome-themes-extra;
+        name = if dark then "Adwaita-dark" else "Adwaita";
+      };
+      settings.GTK.application_prefer_dark_theme = dark;
+      settings.background.fit = "Cover";
+      extraCss = ''
+        button.suggested-action { background: ${accent}; }
+      '';
+    };
 
   home-manager.users.scoot.programs.scoot = {
     enable = true;

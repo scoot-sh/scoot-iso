@@ -5,12 +5,10 @@ on:
     paths-ignore:
       - "*.md"
       - "docs/**"
-      - "iso/welcome/**"
   pull_request:
     paths-ignore:
       - "*.md"
       - "docs/**"
-      - "iso/welcome/**"
   workflow_dispatch:
 
 jobs:

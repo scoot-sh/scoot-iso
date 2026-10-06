@@ -86,6 +86,53 @@
   # The status bar, themed by the look through the desktop profile.
   programs.scootbar.enable = true;
 
+  # The login screen wears the chosen look too: ReGreet's backdrop is
+  # the look's wallpaper (vinyl-sunset ships no image, so its greeter
+  # keeps the dark theme and accent CSS with no backdrop), with a dark
+  # GTK theme and accent CSS in the look's palette through nixpkgs' own
+  # ReGreet options. No extra daemons: a theme package, a CSS file and
+  # a background path. Everything derives from the installed
+  # desktop.look, so all four looks are themed by construction (the
+  # render matrix asserts each one).
+  programs.scoot.greeter.background =
+    let
+      greeterWallpapers = {
+        moonrise = inputs.scoot.outPath + "/docs/assets/wallpapers/moonrise.png";
+        music-desk = inputs.scoot.outPath + "/docs/assets/wallpapers/music-desk.png";
+        radial-burst = inputs.scoot.outPath + "/docs/assets/wallpapers/radial-burst.png";
+        vinyl-sunset = null;
+      };
+    in
+    greeterWallpapers.${config.programs.scoot.desktop.look} or null;
+
+  services.displayManager.regreet =
+    let
+      look = config.programs.scoot.desktop.look;
+      dark = look != "music-desk";
+      accents = {
+        moonrise = "#FFA45C";
+        music-desk = "#3D579A";
+        radial-burst = "#31a9e5";
+        vinyl-sunset = "#E59560";
+      };
+      accent = accents.${look} or "#FFA45C";
+    in
+    {
+      theme = {
+        package = pkgs.gnome-themes-extra;
+        name = if dark then "Adwaita-dark" else "Adwaita";
+      };
+      settings.GTK.application_prefer_dark_theme = dark;
+      settings.background.fit = "Cover";
+      # ReGreet's own hooks (0.5.0): the Login button carries
+      # suggested-action, the cards are frames. Unknown selectors are
+      # ignored, so this degrades to the plain theme, never a broken
+      # greeter.
+      extraCss = ''
+        button.suggested-action { background: ${accent}; }
+      '';
+    };
+
   # nh, the rebuild helper: NH_FLAKE points at this very flake, so
   # `nh os switch` rebuilds it. @@SCOOT_NH_FLAKE@@ is the flake's home:
   # /home/<user>/nixos-config for the home-folder choice (with

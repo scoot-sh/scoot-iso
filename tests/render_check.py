@@ -146,6 +146,14 @@ for choice, loc, variables, layout, look, nh_flake, want_user in CASES:
           f"{tag}: user stanza wrong")
     check(open(os.path.join(flakedir, "flake.lock")).read() == open(os.path.join(target_dir, "flake.lock")).read(),
           f"{tag}: flake.lock bytes differ from the shipped lock")
+    # Themed greeter template: every render carries the per-look
+    # wallpaper map, the dark/light ReGreet theme switch and the Login
+    # accent CSS (values are asserted by evaluation below).
+    check("programs.scoot.greeter.background" in config, f"{tag}: greeter background missing")
+    check("greeterWallpapers" in config, f"{tag}: per-look wallpaper map missing")
+    check("services.displayManager.regreet" in config, f"{tag}: ReGreet theme block missing")
+    check("Adwaita-dark" in config and "application_prefer_dark_theme" in config, f"{tag}: dark GTK theme missing")
+    check("suggested-action" in config, f"{tag}: Login accent CSS missing")
     if layout == "home":
         check(os.path.islink(root + "/etc/nixos"), f"{tag}: /etc/nixos is not a symlink")
         if CAN_CHOWN:
@@ -170,6 +178,65 @@ if failures:
     print(f"render-check FAILED ({len(failures)} problems)")
     sys.exit(1)
 print("render-check OK")
+
+# --- greeter looks check: every look evaluates to its theme --------
+# Re-exec the writer once per look and read back the evaluated greeter
+# values (wallpaper, GTK theme, dark signal, background fit, accent
+# CSS) with one nix eval each: the installed login screen must wear
+# all four looks, and a typo'd wallpaper name only fails here.
+import json as _json
+
+LOOK_IDS = {
+    "scoot-moonrise": ("moonrise", "moonrise.png", "Adwaita-dark", True, "#FFA45C"),
+    "scoot-music-desk": ("music-desk", "music-desk.png", "Adwaita", False, "#3D579A"),
+    "scoot-radial-burst": ("radial-burst", "radial-burst.png", "Adwaita-dark", True, "#31a9e5"),
+    "scoot-vinyl-sunset": ("vinyl-sunset", None, "Adwaita-dark", True, "#E59560"),
+}
+for _choice, (_look, _wall, _theme, _dark, _accent) in LOOK_IDS.items():
+    _root = f"/tmp/render-check-greeter-{_look}"
+    shutil.rmtree(_root, ignore_errors=True)
+    os.makedirs(_root + "/etc/nixos", exist_ok=True)
+    open(_root + "/etc/nixos/configuration.nix", "w").write("# classic boilerplate\n")
+    open(_root + "/etc/nixos/hardware-configuration.nix", "w").write("{ }\n")
+    _vars = {"hostname": "t", "username": "u", "fullname": "U T", "timezone": "Etc/UTC",
+             "LANG": "en_US.UTF-8", "nixosversion": "25.11"}
+    _g = {"gs": FakeGS(_choice, "home"), "libcalamares": FakeCal(),
+          "root_mount_point": _root, "variables": dict(_vars),
+          "os": os, "re": re, "subprocess": FakeSubprocess}
+    warnings.clear()
+    exec(branch, _g)  # noqa: S102 (test harness for generated installer code)
+    _flakedir = _root + "/home/u/nixos-config"
+    shutil.copyfile(os.path.join(target_dir, "hardware-configuration.nix"),
+                    os.path.join(_flakedir, "hardware-configuration.nix"))
+    _expr = (
+        'let f = builtins.getFlake "path:' + _flakedir + '"; '
+        'c = f.nixosConfigurations.scoot.config; in { '
+        'bg = c.programs.scoot.greeter.background; '
+        'theme = c.services.displayManager.regreet.theme.name; '
+        'dark = c.services.displayManager.regreet.settings.GTK.application_prefer_dark_theme; '
+        'fit = c.services.displayManager.regreet.settings.background.fit; '
+        'css = c.services.displayManager.regreet.extraCss; }'
+    )
+    _got = _json.loads(subprocess.check_output(
+        ["nix", "eval", "--impure", "--json", "--expr", _expr],
+        stderr=subprocess.DEVNULL).decode())
+    if _wall is None:
+        check(_got["bg"] is None, f"greeter/{_look}: background should be null (no wallpaper ships), got {_got['bg']}")
+    else:
+        check(_got["bg"] is not None and _got["bg"].endswith(_wall),
+              f"greeter/{_look}: background {_got['bg']} is not the {_wall} wallpaper")
+    check(_got["theme"] == _theme, f"greeter/{_look}: theme {_got['theme']} != {_theme}")
+    check(_got["dark"] is _dark, f"greeter/{_look}: dark signal {_got['dark']} != {_dark}")
+    check(_got["fit"] == "Cover", f"greeter/{_look}: background fit {_got['fit']} != Cover")
+    check(_accent in _got["css"], f"greeter/{_look}: accent {_accent} missing from extraCss")
+    if not [f for f in failures if f.startswith(f"greeter/{_look}")]:
+        print(f"greeter OK: {_look} (bg={_got['bg']}, theme={_theme})")
+    shutil.rmtree(_root, ignore_errors=True)
+
+if failures:
+    print(f"greeter-check FAILED ({len(failures)} problems)")
+    sys.exit(1)
+print("greeter-check OK")
 
 # --- canonical check: the QEMU test's exact config == the mirror ------
 # The patch bakes @@SYSTEM@@ at ISO build time, so the generated flake

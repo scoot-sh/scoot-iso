@@ -67,6 +67,35 @@ let
     Icon=help-about
     Categories=System;
   '';
+
+  # The welcome page ships as a DIRECTORY (/etc/scoot-welcome symlinks
+  # to it): Firefox opens file:///etc/scoot-welcome/index.html, so the
+  # hero's relative <img src> resolves beside it. A single-file etc
+  # entry lands in the store as a lone file, and no sibling image sits
+  # beside it there: the hero rendered as its alt text in a box. The
+  # hero is a web-sized JPEG (ImageMagick resize + quality), not the
+  # full wallpaper PNG. The build itself fails if any local <img src>
+  # in the page is not shipped in this directory (mirrored by the fast
+  # patch-consistency gate, so it fails in seconds, not at ISO build).
+  scootWelcomePage = pkgs.runCommand "scoot-welcome" { } ''
+    mkdir -p $out
+    cp ${../iso/welcome/index.html} $out/index.html
+    if [ -x ${pkgs.imagemagick}/bin/magick ]; then
+      ${pkgs.imagemagick}/bin/magick ${scoot}/docs/assets/wallpapers/moonrise.png -resize '1600x>' -quality 85 $out/moonrise.jpg
+    else
+      ${pkgs.imagemagick}/bin/convert ${scoot}/docs/assets/wallpapers/moonrise.png -resize '1600x>' -quality 85 $out/moonrise.jpg
+    fi
+    ${pkgs.python3}/bin/python3 - $out ${../iso/welcome/index.html} <<'PYEOF'
+    import os, re, sys
+    outdir, page = sys.argv[1], open(sys.argv[2]).read()
+    srcs = re.findall(r'<img[^>]+src="([^"]+)"', page)
+    assert srcs, "welcome page has no <img src> to check"
+    missing = [s for s in srcs if "://" not in s and not os.path.isfile(os.path.join(outdir, s))]
+    if missing:
+        raise SystemExit("welcome <img src> not shipped beside index.html: " + ", ".join(missing))
+    print("welcome imgs OK: " + ", ".join(srcs))
+    PYEOF
+  '';
 in
 {
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-graphical-calamares.nix" ];
@@ -182,12 +211,7 @@ in
       python3
     ];
 
-    environment.etc."scoot-welcome/index.html".source = ../iso/welcome/index.html;
-    # The welcome page's hero banner: the same moonrise illustration the
-    # session shows as its wallpaper (shipped in the pinned scoot under
-    # the Unsplash License; ~400 KB on an ISO measured in gigabytes).
-    environment.etc."scoot-welcome/moonrise.png".source =
-      "${scoot}/docs/assets/wallpapers/moonrise.png";
+    environment.etc."scoot-welcome".source = scootWelcomePage;
 
     # Seed the live user's compositor config at boot (the live home is
     # ephemeral; the NixOS module owns binaries and the login entry,
