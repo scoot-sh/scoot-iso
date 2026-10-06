@@ -37,11 +37,14 @@ downloads); the `.iso` lands in `./scoot-iso-out/` owned by you:
 scripts/build-iso-docker.sh
 ```
 
-`ISO_PLATFORM=linux/amd64` builds x86_64 on an ARM Mac (emulated,
-slow); natively each arch builds its own ISO. The script prints
-elapsed time and the output listing; `scripts/build-iso-docker.sh
---check` runs `nix flake check` in the image instead (fast plumbing
-validation). About 20 GB free and some 30 minutes on a warm cache.
+Natively each arch builds its own ISO. For the x86_64 ISO on an
+Apple Silicon Mac, set `ISO_PLATFORM=linux/amd64`: Docker runs the
+image under emulation (Rosetta), and the script turns off Nix's build
+syscall filter (`filter-syscalls`), which emulation cannot load. Expect
+it to be much slower than a native build. The script prints elapsed
+time and the output listing; `scripts/build-iso-docker.sh --check` runs
+`nix flake check` in the image instead (fast plumbing validation).
+About 20 GB free and some 30 minutes natively on a warm cache.
 
 When release hosting exists, downloading the ISO is the third way;
 until then there are two. GitHub release assets cap at 2 GB (see

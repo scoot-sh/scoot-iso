@@ -5,8 +5,11 @@
 #   scripts/build-iso-docker.sh
 #
 # The .iso lands in ./scoot-iso-out/ owned by you. x86_64 and aarch64
-# build natively; cross-arch (e.g. x86_64 on an ARM Mac) is emulated
-# and slow — pass ISO_PLATFORM=linux/amd64 explicitly for that.
+# build natively. Cross-arch (e.g. the x86_64 ISO on an Apple Silicon
+# Mac: ISO_PLATFORM=linux/amd64) runs the image under emulation
+# (Docker Desktop's Rosetta or qemu-user), which is much slower; the
+# script then turns off Nix's build seccomp filter, which emulation
+# cannot load (see FOREIGN below).
 #
 # What it does: runs the pinned official nixos/nix image (per-arch
 # digest below), which runs `nix build <flake>#iso` with the scoot
@@ -66,9 +69,27 @@ IMAGE="${ISO_DOCKER_IMAGE:-nixos/nix@$DIGEST}"
 PLATFORM_ARG=""
 if [ -n "$PLATFORM" ]; then PLATFORM_ARG="--platform $PLATFORM"; fi
 
+# A foreign platform runs emulated, and emulation cannot load the
+# seccomp BPF program Nix installs around every build: under Docker
+# Desktop's Rosetta every build fails at sandbox setup with
+# "unable to load seccomp BPF program: Invalid argument". So for a
+# foreign platform only, pass `filter-syscalls false`. Natively the
+# filter stays on: it is what stops builds from creating setuid/setgid
+# files or extended attributes, and it costs nothing there.
+case "$ARCH" in
+  x86_64) NATIVE_PLATFORM=linux/amd64 ;;
+  *) NATIVE_PLATFORM=linux/arm64 ;;
+esac
+FOREIGN=0
+if [ -n "$PLATFORM" ] && [ "$PLATFORM" != "$NATIVE_PLATFORM" ]; then FOREIGN=1; fi
+
 CACHIX_SUB="https://scoot-sh.cachix.org"
 CACHIX_KEY="scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
 NIXFLAGS="--extra-experimental-features 'nix-command flakes' --extra-substituters '$CACHIX_SUB' --extra-trusted-public-keys '$CACHIX_KEY'"
+if [ "$FOREIGN" = 1 ]; then
+  NIXFLAGS="$NIXFLAGS --option filter-syscalls false"
+  echo "note: $PLATFORM is emulated on this $ARCH host (slow); building with filter-syscalls off" >&2
+fi
 
 if [ "$CHECK" = 1 ]; then
   # shellcheck disable=SC2086
