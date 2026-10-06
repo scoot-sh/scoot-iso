@@ -46,9 +46,20 @@ if [ "${1:-}" = "--check" ]; then CHECK=1; fi
 
 ARCH="$(uname -m)"
 case "$ARCH" in
-  x86_64) DIGEST="$DIGEST_AMD64" ;;
-  arm64|aarch64) DIGEST="$DIGEST_ARM64" ;;
+  x86_64) NATIVE_DIGEST="$DIGEST_AMD64" ;;
+  arm64|aarch64) NATIVE_DIGEST="$DIGEST_ARM64" ;;
   *) echo "unsupported arch $ARCH" >&2; exit 2 ;;
+esac
+# The image must match the platform Docker will actually run: an
+# arm64 digest with --platform linux/amd64 fails with a platform
+# mismatch instead of emulating (the digest pins one arch's manifest,
+# verified with `docker manifest inspect --verbose`). So the digest
+# follows the EFFECTIVE platform — ISO_PLATFORM when set, else native.
+case "$PLATFORM" in
+  linux/amd64) DIGEST="$DIGEST_AMD64" ;;
+  linux/arm64) DIGEST="$DIGEST_ARM64" ;;
+  "") DIGEST="$NATIVE_DIGEST" ;;
+  *) echo "unsupported ISO_PLATFORM $PLATFORM (want linux/amd64 or linux/arm64)" >&2; exit 2 ;;
 esac
 IMAGE="${ISO_DOCKER_IMAGE:-nixos/nix@$DIGEST}"
 

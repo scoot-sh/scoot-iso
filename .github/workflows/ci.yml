@@ -110,7 +110,7 @@ jobs:
   # job above proves /dev/kvm is usable there with the udev rule.
   # aarch64 builds run on the Asahi box (never on PR CI).
   qemu-test:
-    needs: build-iso
+    needs: [build-iso, kvm-probe]
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -157,21 +157,22 @@ jobs:
           retention-days: 14
 
   release:
-    needs: build-iso
+    needs: [build-iso, qemu-test]
     if: startsWith(github.ref, 'refs/tags/iso-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v18
-      - name: build ISO
-        run: nix build .#packages.x86_64-linux.iso -o result-iso
+      - name: fetch the tested ISO (build-iso's artifact, not a rebuild)
+        uses: actions/download-artifact@v4
+        with:
+          name: scoot-iso-x86_64-linux
+          path: result-iso
       - name: attach or redirect (2 GB release-asset cap)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          iso=$(echo result-iso/iso/*.iso)
+          iso=$(find result-iso -name '*.iso' | head -1)
           bytes=$(stat -c%s "$iso")
           if [ "$bytes" -ge 2147483648 ]; then
             echo "ISO is $(numfmt --to=iec "$bytes"), over GitHub's 2 GB release-asset cap."
