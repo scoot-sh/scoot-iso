@@ -108,6 +108,8 @@ check('"--no-write-lock-file"' in patch, "patch script lost --no-write-lock-file
 check('\"substitute\"' in patch and '\"false\"' in patch, "patch script lost substitute=false (gaps must fail loud offline)")
 check('"/home/" + scoot_cmd_user + "/nixos-config#scoot"' in patch, "patch script lost the home-folder install ref")
 check('"/etc/nixos#scoot"' in patch, "patch script lost the system-wide install ref")
+check("setprogress(INSTALL_PROGRESS_END)" in patch, "patch script lost the post-install anchor (ownership handoff)")
+check('"1000:100"' in patch, "patch script lost the pinned ownership handoff")
 check('"scoot_lock_text"' in patch or "scoot_lock_text = " in patch, "patch script lost the embedded flake.lock")
 check("scoot-location.conf" in patch, "patch script lost the location page config")
 check("packagechooser@scoot-location" in patch, "patch script lost the location page sequence entry")

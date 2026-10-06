@@ -413,7 +413,6 @@ os.symlink('/home/' + username + '/nixos-config', '/mnt/etc/nixos')
 subprocess.check_output(['git', '-C', flakedir, 'init', '-b', 'main'])
 subprocess.check_output(['git', '-C', flakedir, 'add', '-A'])
 subprocess.check_output(['git', '-C', flakedir, '-c', 'user.name=' + fullname, '-c', 'user.email=' + username + '@localhost', 'commit', '-m', 'Initial scoot system (scoot-iso installer)'])
-subprocess.check_output(['chown', '-R', '1000:100', flakedir])
 print('RENDER-OK')
 PYEOF
 "
@@ -429,6 +428,10 @@ tail -40 /tmp/install.log
 ls -la /mnt/home/$TEST_USER/nixos-config/ /mnt/etc/nixos
 exit \$rc
 "
+# Ownership handoff after a successful install (mirrors the installer's
+# post-install step): the repo was committed root-owned so nix reads it
+# as root, and only now becomes the user's.
+guest_exec 'chown -R 1000:100 /mnt/home/'$TEST_USER' && echo CHOWN-OK'
 guest_exec "nixos-enter --root /mnt -c \"echo '$TEST_USER:$TEST_PASS' | chpasswd\" && echo PASSWD-OK"
 guest_exec 'poweroff || halt -p'
 sleep 10

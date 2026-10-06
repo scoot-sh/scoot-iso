@@ -45,6 +45,10 @@ start = src.index('    scoot_choice = gs.value("packagechooser_packagechooser")'
 endmark = '    else:\n        libcalamares.utils.host_env_process_output(["cp", "/dev/stdin", config], None, cfg)'
 end = src.index(endmark)
 branch = textwrap.dedent(src[start:end])
+post_start = src.index('    scoot_post_choice = gs.value("packagechooser_packagechooser")')
+post_endmark = '    libcalamares.job.setprogress(INSTALL_PROGRESS_END)'
+post_end = src.index(post_endmark)
+post_branch = textwrap.dedent(src[post_start:post_end])
 
 warnings = []
 
@@ -117,6 +121,7 @@ for choice, loc, variables, layout, look, nh_flake, want_user in CASES:
     warnings.clear()
     chown_calls.clear()
     exec(branch, g)  # noqa: S102 (test harness for generated installer code)
+    exec(post_branch, g)  # post-install ownership handoff, same stubs
     flakedir = root + ("/home/u/nixos-config" if layout == "home" and "username" in variables else "/etc/nixos")
     if layout == "home" and "username" not in variables:
         flakedir = root + "/etc/nixos"
@@ -137,10 +142,11 @@ for choice, loc, variables, layout, look, nh_flake, want_user in CASES:
             st = os.stat(flakedir)
             check((st.st_uid, st.st_gid) == (1000, 100), f"{tag}: ownership {(st.st_uid, st.st_gid)} != (1000, 100)")
         else:
-            check(chown_calls == [("chown", "-R", "1000:100", flakedir)],
+            check(chown_calls == [("chown", "-R", "1000:100", root + "/home/u")],
                   f"{tag}: chown call wrong (non-root run): {chown_calls}")
     else:
         check(not os.path.islink(root + "/etc/nixos"), f"{tag}: /etc/nixos should be a real dir")
+        check(chown_calls == [], f"{tag}: system install must not chown: {chown_calls}")
     log = subprocess.check_output(["git", "-C", flakedir, "log", "--oneline"]).decode()
     check(len(log.strip().splitlines()) == 1 and "Initial scoot system" in log, f"{tag}: git first commit wrong: {log!r}")
     tracked = subprocess.check_output(["git", "-C", flakedir, "ls-files"]).decode().split()

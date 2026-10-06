@@ -277,7 +277,6 @@ def main() -> None:
         '            subprocess.check_output(["git", "-C", scoot_flakedir, "init", "-b", "main"])\n'
         '            subprocess.check_output(["git", "-C", scoot_flakedir, "add", "-A"])\n'
         '            subprocess.check_output(["git", "-C", scoot_flakedir, "-c", "user.name=" + str(scoot_fullname), "-c", "user.email=" + scoot_vars["username"] + "@localhost", "commit", "-m", "Initial scoot system (scoot-iso installer)"])\n'
-        '            subprocess.check_output(["chown", "-R", "1000:100", scoot_flakedir])\n'
         '        else:\n'
         '            subprocess.check_output(["git", "-C", scoot_flakedir, "init", "-b", "main"])\n'
         '            subprocess.check_output(["git", "-C", scoot_flakedir, "add", "-A"])\n'
@@ -326,6 +325,27 @@ def main() -> None:
         + "        )\n"
     )
     main_py = replace_once(main_py, anchor_cmd, cmd_patch, "install command")
+
+    # 4. After a successful install, hand the home-folder tree to its
+    # user. The repo is committed root-owned (so nix reads it as root
+    # during install without tripping libgit2 ownership validation) and
+    # only now chowned to the pinned uid/gid. System-wide installs stay
+    # root-owned and need nothing here.
+    post_anchor = '    libcalamares.job.setprogress(INSTALL_PROGRESS_END)\n    return None\n'
+    post_block = (
+        '    scoot_post_choice = gs.value("packagechooser_packagechooser")\n'
+        '    if scoot_post_choice in ' + repr(sorted(SCOOT_LOOKS)) + ':\n'
+        '        scoot_post_loc = gs.value("packagechooser_scoot-location")\n'
+        '        if scoot_post_loc not in ("home", "system"):\n'
+        '            scoot_post_loc = "home"\n'
+        '        scoot_post_user = variables.get("username")\n'
+        '        if scoot_post_loc == "home" and not scoot_post_user:\n'
+        '            scoot_post_loc = "system"\n'
+        '        if scoot_post_loc == "home":\n'
+        '            subprocess.check_output(["chown", "-R", "1000:100", os.path.join(root_mount_point, "home", scoot_post_user)])\n'
+        + post_anchor
+    )
+    main_py = replace_once(main_py, post_anchor, post_block, "post-install chown")
 
     with open(out_main, "w") as f:
         f.write(main_py)
