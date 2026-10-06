@@ -382,6 +382,11 @@ check("DISK-UNBOOTED-OK" in qemu, "qemu-test lost the verified disk zap (firmwar
 check("UNBOOT-VERIFY-FAIL" in qemu, "qemu-test lost the zap verification (a silent no-op must fail loudly)")
 check("OVMF_VARS_4.fd" in qemu, "qemu-test lost the fresh vars file for the phase-4 ISO boot")
 check("ISO-BOOT-OK" in qemu, "qemu-test lost the ISO-boot assertion")
+# KVM can lag cage (procs up, framebuffer blank): phase 4b polls the
+# frame itself for content before clicking, and dumps diagnostics on
+# a login failure instead of exiting silent.
+check("TWEAK-DISPLAY-READY" in qemu, "qemu-test lost the greeter-display readiness poll")
+check("tweak-login-failure.ppm" in qemu, "qemu-test lost the tweak failure diagnostics")
 # Installed bar content: the example layout, not the clock-only
 # default, minus the live-only Welcome button.
 check("BAR-CONTENT-OK" in qemu, "qemu-test lost the installed-bar content proof")

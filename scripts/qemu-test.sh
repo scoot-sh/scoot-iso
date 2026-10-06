@@ -890,8 +890,33 @@ stop_vm
 echo "=== phase 4b: the tweak install boots and logs in ==="
 start_vm c
 wait_ga
-sleep 30
-qmp screendump "{\"filename\": \"$WORKDIR/tweak-session.ppm\"}" >/dev/null
+# KVM can lag cage: the greeter procs are up long before the first
+# frame hits the framebuffer (CI's screendumps caught blank displays
+# while GREETER-OK passed). Poll the frame itself for content before
+# clicking: a uniform frame is not ready, a varied one is. Never fail
+# here — the login attempts below stay the hard gate.
+qmp_ready() { # $1 = ppm path; echoes READY or NOT-READY
+  python3 - "$1" <<'EOF'
+import sys
+try:
+    p = open(sys.argv[1], "rb").read()
+    assert p[:2] == b"P6"
+    i = p.rfind(b"\n255\n")
+    assert i > 0
+    raw = p[i + 5:]
+    samp = raw[:: max(1, len(raw) // 3000)]
+    print("READY" if len(set(samp)) > 64 else "NOT-READY")
+except Exception:
+    print("NOT-READY")
+EOF
+}
+ready=0
+for _ in $(seq 1 24); do
+  qmp screendump "{\"filename\": \"$WORKDIR/tweak-session.ppm\"}" >/dev/null 2>&1 || true
+  if [ "$(qmp_ready "$WORKDIR/tweak-session.ppm")" = READY ]; then ready=1; break; fi
+  sleep 10
+done
+[ "$ready" = 1 ] && echo TWEAK-DISPLAY-READY || echo "TWEAK-DISPLAY-WARN: framebuffer stayed uniform; attempting login anyway"
 guest_exec 'systemctl is-active greetd && echo TWEAK-GREETER-OK'
 attempt_login
 login_ok=0
@@ -900,7 +925,18 @@ for _ in $(seq 1 12); do
   sleep 5
 done
 if [ "$login_ok" != 1 ]; then
+  echo "login attempt 1 missed; clicking Login again and retyping"
+  qmp screendump "{\"filename\": \"$WORKDIR/tweak-login-retry.ppm\"}" >/dev/null || true
+  attempt_login
+  for _ in $(seq 1 12); do
+    if session_up; then login_ok=1; break; fi
+    sleep 5
+  done
+fi
+if [ "$login_ok" != 1 ]; then
   echo "TWEAK-LOGIN-FAIL: no user session after the online tweak install" >&2
+  qmp screendump "{\"filename\": \"$WORKDIR/tweak-login-failure.ppm\"}" >/dev/null || true
+  guest_exec 'loginctl list-sessions || true; pgrep -au 1000 | head -10 || true; systemctl status greetd --no-pager | head -20 || true'
   exit 1
 fi
 echo "TWEAK-ONLINE-LOGIN-OK: tweak install boots and logs in with the network path"
