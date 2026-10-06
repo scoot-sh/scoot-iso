@@ -447,7 +447,9 @@ exit \$rc
 # as root, and only now becomes the user's.
 guest_exec 'chown -R 1000:100 /mnt/home/'$TEST_USER' && echo CHOWN-OK'
 guest_exec "nixos-enter --root /mnt -c \"echo '$TEST_USER:$TEST_PASS' | chpasswd\" && echo PASSWD-OK"
-guest_exec 'poweroff || halt -p'
+# poweroff kills the guest agent mid-command, which the qga helper
+# reports as failure: tolerate it, the VM is down either way.
+guest_exec 'poweroff || halt -p' || true
 sleep 10
 stop_vm
 
