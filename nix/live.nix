@@ -199,7 +199,14 @@ in
 
     # Seed the live user's compositor config at boot (the live home is
     # ephemeral; the NixOS module owns binaries and the login entry,
-    # the config file is seeded here).
+    # the config file is seeded here). Also pre-creates the Firefox
+    # profile the welcome window uses: Firefox 155's default-profile
+    # auto-creation fails in the live session (empty HOME, no
+    # profiles.ini: "Profile Missing" dialog, proven across CI and local
+    # runs — while an existing profile, even freshly seeded, loads and
+    # populates fine). Seeding here, before greetd starts the session,
+    # is deterministic; the user.js also silences first-run tabs so the
+    # welcome page opens alone.
     systemd.services.scoot-live-seed = {
       description = "Seed the live scoot session config";
       wantedBy = [ "multi-user.target" ];
@@ -208,8 +215,32 @@ in
       script = ''
         mkdir -p /home/nixos/.config/scoot
         cp ${liveConfig} /home/nixos/.config/scoot/config.toml
+        mkdir -p /home/nixos/.mozilla/firefox/welcome.default
+        cat > /home/nixos/.mozilla/firefox/profiles.ini <<'EOF'
+        [Profile0]
+        Name=default
+        IsRelative=1
+        Path=welcome.default
+        Default=1
+
+        [General]
+        StartWithLastProfile=1
+        Version=2
+        EOF
+        cat > /home/nixos/.mozilla/firefox/installs.ini <<'EOF'
+        [DEFAULT]
+        Default=welcome.default
+        Locked=1
+        EOF
+        cat > /home/nixos/.mozilla/firefox/welcome.default/user.js <<'EOF'
+        user_pref("browser.aboutwelcome.enabled", false);
+        user_pref("datareporting.policy.firstRunURL", "");
+        user_pref("trailhead.firstrun.didSeeAboutWelcome", true);
+        user_pref("browser.startup.homepage_override.mstone", "ignore");
+        user_pref("datareporting.policy.dataSubmissionEnabled", false);
+        EOF
         # The live home must belong to nixos wholesale: the autostarted
-        # Firefox creates its profile under it on first login, and
+        # Firefox populates its profile under it on first login, and
         # anything root-owned (previously even .config itself, which
         # mkdir -p creates as root) breaks sandboxed writers.
         chown -R nixos:users /home/nixos

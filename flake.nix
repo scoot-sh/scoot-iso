@@ -192,6 +192,7 @@
               ${./iso/target/flake.lock} \
               ${./iso/target/hardware-configuration.nix} \
               ${./nix/target-machine.nix} \
+              ${./nix/live.nix} \
               ${./nix/calamares-patch.py} \
               ${./nix/packagechooser-scoot.conf} \
               ${./nix/packagechooser-scoot-location.conf} \

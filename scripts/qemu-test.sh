@@ -310,37 +310,10 @@ echo "--- browser processes ---"; pgrep -af "[f]irefox --new-window" || true
 echo "--- browser env ---"
 for pid in $(pgrep -f "[f]irefox --new-window"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|SCOOT_SOCKET|MOZ_|DBUS_SESSION)" || true; done
 echo "--- nixos home ---"; ls -la /home/nixos/ | head -20
-echo "--- mozilla dir ---"; ls -la /home/nixos/.mozilla/ 2>&1 || true
-echo "--- browser --help (no profile needed) ---"; sudo -u nixos HOME=/home/nixos firefox --help 2>&1 | head -5 || true
+echo "--- mozilla dir (seeded profile + populated default) ---"; ls -la /home/nixos/.mozilla/firefox/ 2>&1 || true
 echo "--- browser stderr from the session journal ---"; sudo -u nixos journalctl --user -b --no-pager 2>/dev/null | grep -iE "firefox|mozilla|profile|NS_ERROR" | head -20 || true
 echo "--- crashes? ---"; coredumpctl list --no-pager 2>/dev/null | head -5 || true
 id nixos
-exit 0
-' || true
-echo "--- browser bypass experiments (diagnostic; never fatal) ---"
-guest_exec '
-pkill_out=$(pgrep -f "[f]irefox --new-window" || true)
-for pid in $pkill_out; do if [ "$pid" != "$$" ]; then kill "$pid" || true; fi; done
-sleep 2
-echo "--- variant A: -profile with a pre-created USER-OWNED dir ---"
-mkdir -p /home/nixos/.welcome-profile
-chown nixos:users /home/nixos/.welcome-profile
-su -s /bin/sh nixos -c "HOME=/home/nixos WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 firefox -profile /home/nixos/.welcome-profile --new-window file:///etc/scoot-welcome/index.html > /tmp/ff-profile.log 2>&1 &"
-sleep 25
-ls -la /home/nixos/.welcome-profile 2>&1 | head -10 || true
-echo "--- variant A log ---"; head -30 /tmp/ff-profile.log || true
-echo "--- variant B: real binary, minimal env (no wrapper vars at all) ---"
-pkill_out=$(pgrep -f "[f]irefox --new-window" || true)
-for pid in $pkill_out; do if [ "$pid" != "$$" ]; then kill "$pid" || true; fi; done
-sleep 2
-rm -rf /home/nixos/.mozilla
-firefox_wrapper=$(command -v firefox)
-firefox_real=$(grep -Eo "/nix/store/[^ \"]*lib/firefox/firefox" "$firefox_wrapper" | head -1)
-ls -la "$firefox_real"
-su -s /bin/sh nixos -c "env -i HOME=/home/nixos WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000 PATH=/run/current-system/sw/bin:/usr/bin:/bin $firefox_real --new-window file:///etc/scoot-welcome/index.html > /tmp/ff-direct.log 2>&1 &"
-sleep 25
-ls -la /home/nixos/.mozilla 2>&1 | head -10 || true
-echo "--- variant B log ---"; head -30 /tmp/ff-direct.log || true
 exit 0
 ' || true
 sleep 5 # let the welcome page paint

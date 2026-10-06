@@ -7,7 +7,7 @@ installer."""
 import re
 import sys
 
-flake_path, config_path, lock_path, hw_path, mirror_path, patch_path, item_path, location_path, qemu_path = sys.argv[1:]
+flake_path, config_path, lock_path, hw_path, mirror_path, live_path, patch_path, item_path, location_path, qemu_path = sys.argv[1:]
 
 failures = []
 
@@ -22,6 +22,7 @@ config = open(config_path).read()
 lock = open(lock_path).read()
 hw = open(hw_path).read()
 mirror = open(mirror_path).read()
+live = open(live_path).read()
 patch = open(patch_path).read()
 item = open(item_path).read()
 location = open(location_path).read()
@@ -158,6 +159,14 @@ check('networking.hostName = "scoot"' in mirror, "mirror lost hostname scoot (te
 check('time.timeZone = "UTC"' in mirror, "mirror lost timeZone UTC (test renders UTC)")
 check('users.users.scoot' in mirror, "mirror lost user scoot (test installs scoot)")
 check('description = "scoot"' in mirror, "mirror lost description scoot (test renders fullname scoot)")
+
+# Live session seeds the welcome browser's profile (Firefox's
+# default-profile auto-creation fails on live media: "Profile Missing").
+check(".mozilla/firefox/welcome.default" in live, "live session lost the seeded firefox profile dir")
+check("profiles.ini" in live and "installs.ini" in live, "live session lost the seeded profile registry")
+check("browser.aboutwelcome.enabled" in live, "live session lost the first-run suppression")
+check("scoot-firefox.log" in live, "live session lost the firefox stderr capture")
+check("chown -R nixos:users /home/nixos" in live, "live session lost the recursive home chown")
 
 # QEMU test installs the canonical config only (else the shipped
 # closure would not match): user/host/timezone pinned to the mirror.
