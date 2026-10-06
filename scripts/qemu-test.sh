@@ -528,12 +528,15 @@ su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --us
 cat > /tmp/scoot-check.sh <<'"'"'CHEOF'"'"'
 export XDG_RUNTIME_DIR=__RUNTIME__
 export WAYLAND_DISPLAY=scoot-test-0
-scoot --headless --outputs 1 -- foot &
+echo HEADLESS-START
+scoot --headless --outputs 1 -- foot > /tmp/headless.log 2>&1 &
 sleep 5
-scoot msg version
-scoot msg outputs
-scoot msg windows
-scoot msg screenshot --out /tmp/installed-scoot.png && echo SCREENSHOT-OK
+for sub in version outputs windows; do
+  echo "MSG-$sub"
+  timeout 60 scoot msg $sub || echo "MSG-$sub-FAIL"
+done
+echo MSG-SCREENSHOT
+timeout 120 scoot msg screenshot --out /tmp/installed-scoot.png && echo SCREENSHOT-OK || echo SCREENSHOT-FAIL
 CHEOF
 sed -i "s|__RUNTIME__|$XDG_RUNTIME_DIR|" /tmp/scoot-check.sh
 chown '$TEST_USER':users /tmp/scoot-check.sh
