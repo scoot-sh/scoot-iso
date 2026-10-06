@@ -82,7 +82,7 @@ VARS="$WORKDIR/OVMF_VARS.fd"
 QMP="$WORKDIR/qmp.sock"
 GASOCK="$WORKDIR/ga.sock"
 LOG="$WORKDIR/qemu-test.log"
-[ -f "$VARS" ] || cp "$OVMF_VARS_SRC" "$VARS"
+[ -f "$VARS" ] || { cp "$OVMF_VARS_SRC" "$VARS" && chmod u+w "$VARS"; }
 qemu-img create -f qcow2 "$DISK" 24G >/dev/null
 exec > >(tee "$LOG") 2>&1
 
