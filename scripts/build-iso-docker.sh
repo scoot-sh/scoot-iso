@@ -68,11 +68,15 @@ if [ "$CHECK" = 1 ]; then
 fi
 
 mkdir -p "$OUTDIR"
+case "$OUTDIR" in
+  /*) MOUNT="$OUTDIR" ;;
+  *) MOUNT="$PWD/$OUTDIR" ;;
+esac
 START=$(date +%s)
 # shellcheck disable=SC2086
 docker run --rm $PLATFORM_ARG \
   -e CALLER_UID="$(id -u)" -e CALLER_GID="$(id -g)" \
-  -v "$PWD/$OUTDIR:/out" \
+  -v "$MOUNT:/out" \
   "$IMAGE" \
   sh -c "nix $NIXFLAGS build '$FLAKE#$ATTR' --print-build-logs -o /tmp/iso-result && iso=\$(echo /tmp/iso-result/iso/*.iso) && cp \"\$iso\" /out/ && chown \"\$CALLER_UID:\$CALLER_GID\" /out/\$(basename \"\$iso\") && sha256sum /out/\$(basename \"\$iso\")"
 END=$(date +%s)

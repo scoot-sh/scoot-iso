@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: build ISO via Docker
         run: |
-          ISO_OUTDIR=docker-iso-out scripts/build-iso-docker.sh
+          ISO_FLAKE="github:scoot-sh/scoot-iso?ref=${{ github.sha }}" ISO_OUTDIR=docker-iso-out scripts/build-iso-docker.sh
       - name: measure the Docker-built ISO
         run: |
           iso=$(echo docker-iso-out/*.iso)
