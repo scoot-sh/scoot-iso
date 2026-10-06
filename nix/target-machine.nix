@@ -19,10 +19,13 @@ let
   # in the pinned scoot), used by the system bar below and the
   # home-manager half alike, so whichever unit the session starts
   # draws the same layout. Mirrors the installer template's
-  # scootBarLayouts.moonrise exactly (the drvPath gate holds).
+  # scootBarLayouts.moonrise exactly (the drvPath gate holds). The
+  # bar's face is the desktop profile's own UI face (DroidSansM Nerd
+  # Font Propo: DejaVu has no Nerd glyphs, so a DejaVu face left
+  # every module icon a tofu box).
   moonriseBar =
       let
-        font = "${pkgs.dejavu_fonts.minimal}/share/fonts/truetype/DejaVuSans.ttf";
+        font = "${pkgs.nerd-fonts.droid-sans-mono}/share/fonts/opentype/NerdFonts/DroidSansM/DroidSansMNerdFontPropo-Regular.otf";
         execScripts = pkgs.runCommand "scootbar-exec-scripts" { } ''
           mkdir -p $out/bin
           cp ${scoot.outPath}/docs/examples/moonrise/load.sh $out/bin/load.sh
@@ -170,6 +173,14 @@ in
   environment.systemPackages = with pkgs; [
     foot
     git
+  ];
+
+  # Nerd-glyph surfaces beyond the bar file: foot's FiraCode Nerd
+  # Font and the greeter session resolve through fontconfig, so both
+  # Nerd faces ride fonts.packages here exactly as in the template.
+  fonts.packages = with pkgs; [
+    nerd-fonts.droid-sans-mono
+    nerd-fonts.fira-code
   ];
 
   services.qemuGuest.enable = true;

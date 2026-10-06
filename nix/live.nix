@@ -133,7 +133,9 @@ in
 
     # The full desktop profile with the moonrise look, the session
     # entry and the bar (the profile themes it through programs.scootbar
-    # when that module is imported, which it is here).
+    # when that module is imported, which it is here: the bar's face
+    # is the look's DroidSansM Nerd Font Propo, not DejaVu, so the
+    # module icons render instead of tofu).
     programs.scoot = {
       enable = true;
       package = scootPkgs.scoot;
@@ -168,7 +170,9 @@ in
           dim = "#9C8B95";
           urgent = "#E87F6A";
         };
-        bar.font = "${pkgs.dejavu_fonts.minimal}/share/fonts/truetype/DejaVuSans.ttf";
+        # No bar.font here: the desktop profile themes the look's
+        # Nerd face (see the installed template); hand-setting DejaVu
+        # would override it and tofu the icons.
         button.welcome = {
           text = "Welcome";
           on-click = {

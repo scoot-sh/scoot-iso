@@ -745,6 +745,11 @@ export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock
 echo "--- the installed bar wears the look layout, not the clock-only default ---"
 grep -q "workspaces" /etc/scootbar/bar.toml && grep -q "window-title" /etc/scootbar/bar.toml && grep -q "^\[clock\]" /etc/scootbar/bar.toml && echo BAR-CONTENT-OK
 ! grep -q "welcome" /etc/scootbar/bar.toml && echo BAR-NO-WELCOME-OK
+echo "--- the bar face carries the Nerd glyphs (no tofu) ---"
+fc-list | grep -qi "DroidSansM Nerd Font Propo" && echo BAR-FONT-FAMILY-OK
+barfont=$(grep "^font = " /etc/scootbar/bar.toml | cut -d\" -f2)
+test -f "$barfont" && echo BAR-FONT-FILE-OK
+fc-list | grep -qi "FiraCode Nerd Font" && echo FOOT-FONT-FAMILY-OK
 echo "--- bar + wallpaper resident ---"
 pgrep -u 1000 -x scootbar && echo BAR-PROC-OK
 su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=/run/user/1000 systemctl --user is-active scootbar" && echo BAR-UNIT-OK

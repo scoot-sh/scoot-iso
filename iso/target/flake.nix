@@ -11,7 +11,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe";
-    scoot.url = "github:scoot-sh/scoot/d7de6eafa630685bbe385db7ad8d9c93de124a1b";
+    scoot.url = "github:scoot-sh/scoot/ca35bd7c85c8152af5dada1d4c756da3cc39902f";
     home-manager.url = "github:nix-community/home-manager/f53f3267f5d009dd8f99443505e609389d7ff267";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };

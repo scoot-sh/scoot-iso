@@ -32,10 +32,16 @@ let
   # config names /etc/scootbar/bar.toml explicitly. The live-only
   # Welcome button stays on the live session (nix/live.nix). Values
   # are the examples' verbatim (icons are Nerd Font PUA glyphs, via
-  # JSON: Nix strings have no \U escape).
+  # JSON: Nix strings have no \U escape). The bar's face is the
+  # desktop profile's own UI face (DroidSansM Nerd Font Propo from
+  # pkgs.nerd-fonts.droid-sans-mono: scoot's nix/modules/scootbar.nix
+  # themes this same file through its fontFile helper for
+  # fonts.ui, and nix/modules/desktop.nix names it as every look's
+  # fonts.ui). DejaVu Sans has no Nerd glyphs, so a DejaVu bar face
+  # left every module icon a tofu box; the Propo carries them.
   scootBarLayouts =
     let
-        font = "${pkgs.dejavu_fonts.minimal}/share/fonts/truetype/DejaVuSans.ttf";
+        font = "${pkgs.nerd-fonts.droid-sans-mono}/share/fonts/opentype/NerdFonts/DroidSansM/DroidSansMNerdFontPropo-Regular.otf";
         execScripts = pkgs.runCommand "scootbar-exec-scripts" { } ''
           mkdir -p $out/bin
           cp ${inputs.scoot.outPath}/docs/examples/moonrise/load.sh $out/bin/load.sh
@@ -351,6 +357,20 @@ in
   environment.systemPackages = with pkgs; [
     foot
     git
+  ];
+
+  # Every other Nerd-glyph surface resolves its face through
+  # fontconfig, not a file: foot's `--font=FiraCode Nerd Font`
+  # (the bar's launcher buttons and every look's foot.ini name it)
+  # and the greeter session alike. Both Nerd faces therefore ride
+  # fonts.packages (the bar's own face is the file above; this makes
+  # the same family resolvable everywhere else too, and puts the
+  # faces in the offline closure). fc-list is on PATH by default
+  # (nixpkgs' fontconfig module installs it), which the QEMU test's
+  # font proof relies on.
+  fonts.packages = with pkgs; [
+    nerd-fonts.droid-sans-mono
+    nerd-fonts.fira-code
   ];
 
   # VM integration (QEMU guest agent: clipboard/host integration, and

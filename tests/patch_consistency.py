@@ -32,7 +32,7 @@ docker = open(docker_path).read()
 ci = open(ci_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
-SCOOT_REV = "d7de6eafa630685bbe385db7ad8d9c93de124a1b"
+SCOOT_REV = "ca35bd7c85c8152af5dada1d4c756da3cc39902f"
 HM_REV = "f53f3267f5d009dd8f99443505e609389d7ff267"
 CACHIX_URL = "https://scoot-sh.cachix.org"
 CACHIX_KEY = "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
@@ -219,6 +219,19 @@ check("button.welcome" not in mirror, "mirror must not carry the live-only Welco
 # installed desktop on the bar binary's clock-only default. Both
 # halves now draw the same layout, and the home unit stays off so
 # exactly one daemon runs.
+# Nerd-glyph surfaces: the bar wears the desktop profile's Propo face
+# as a file (DejaVu Sans has no Nerd glyphs, so a DejaVu bar face left
+# every module icon a tofu box), while foot's FiraCode Nerd Font and
+# the greeter session resolve through fontconfig: both Nerd faces ride
+# fonts.packages in the template and the mirror, and the guest proves
+# the family listings plus the bar's font file.
+for _side, _text in (("target configuration.nix", config), ("mirror", mirror)):
+    check("DroidSansMNerdFontPropo-Regular.otf" in _text, f"{_side} lost the Propo bar face (DejaVu tofus the icons)")
+    check("nerd-fonts.droid-sans-mono" in _text, f"{_side} lost the bar-face font package")
+    check("nerd-fonts.fira-code" in _text, f"{_side} lost the foot font package")
+    check("fonts.packages" in _text, f"{_side} lost fonts.packages (foot/greeter resolve through fontconfig)")
+    check("DejaVuSans.ttf" not in _text, f"{_side} still names a DejaVu bar face (tofu)")
+check("DejaVuSans.ttf" not in live, "live session still hand-sets a DejaVu bar face (the profile themes the Propo)")
 check("scootBarLayouts" in config, "template lost the shared bar-layout binding")
 check("scootBarLayouts" in patch, "patch HM stanza lost the shared bar-layout read")
 check("systemd.enable = false" in patch, "patch HM stanza lost the home-unit off switch")
@@ -392,6 +405,11 @@ check("tweak-login-failure.ppm" in qemu, "qemu-test lost the tweak failure diagn
 check("BAR-CONTENT-OK" in qemu, "qemu-test lost the installed-bar content proof")
 check("/etc/scootbar/bar.toml" in qemu, "qemu-test lost the installed bar.toml read")
 check("BAR-NO-WELCOME-OK" in qemu, "qemu-test lost the no-live-Welcome-button proof")
+# Nerd-glyph proof: fontconfig lists both Nerd families on the
+# installed system, and the bar's font file exists.
+check("BAR-FONT-FAMILY-OK" in qemu, "qemu-test lost the bar font-family proof (fc-list)")
+check("BAR-FONT-FILE-OK" in qemu, "qemu-test lost the bar font-file proof")
+check("FOOT-FONT-FAMILY-OK" in qemu, "qemu-test lost the foot font-family proof (fc-list)")
 
 # Docker one-command build: image pinned by digest (never :latest),
 # check mode for fast plumbing validation, caller-owned output. The

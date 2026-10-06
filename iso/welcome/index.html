@@ -38,7 +38,10 @@
   /* Hero, as on scoot.sh: the cat art first (its ground is pure
      black, so it melts into the page — square edges, no frame),
      then the punchline continuing the art's wordmark, then what
-     this session is for. */
+     this session is for. The whole block is centered: the `p`
+     rule below caps every paragraph at 72ch, and a capped box with
+     a zero side margin sits left of center, so the hero lines carry
+     explicit auto side margins (like scoot.sh's own hero). */
   .hero { text-align: center; }
   .hero img {
     display: block;
@@ -56,12 +59,12 @@
     margin: 0.4em 0 0.15em;
   }
   .hero p.tag {
-    margin: 0;
+    margin: 0 auto;
     color: var(--paper);
     font-size: 1.05rem;
   }
   .hero p.live {
-    margin: 0.6em 0 0;
+    margin: 0.6em auto 0;
     color: var(--ash);
     font-size: 0.95rem;
   }
