@@ -4,15 +4,15 @@ A NixOS live + installer ISO with the scoot desktop: boot the USB stick
 and you are in a full scoot session; run the installer and the target
 gets the scoot desktop profile with the ReGreet login screen.
 
-> Screenshots (from `scripts/qemu-test.sh` via QMP screendump plus
-> `scoot msg screenshot --out`, never hand captures):
+> Screenshots (QEMU screendumps taken by `scripts/qemu-test.sh` in CI,
+> never hand captures):
 >
-> ![The live session: scoot with the moonrise look and the welcome window](docs/screenshots/live-session.png)
-> ![The installed desktop after a real ReGreet login, with the moonrise bar layout](docs/screenshots/installed-desktop.png)
+> ![The live session: the welcome window, with the scoot cat over the headline](docs/screenshots/live-session.png)
+> ![The installed desktop after a real ReGreet login: the moonrise wallpaper and bar layout, with icons](docs/screenshots/installed-desktop.png)
 >
-> The live session wears moonrise; the installed bar wears each look's
-> own example layout (workspaces and window title left, clock center,
-> system modules right).
+> The live session opens the welcome window; the installed bar wears
+> each look's own example layout (workspaces and window title left,
+> clock center, system modules with their icons right).
 
 ## One command
 
@@ -68,15 +68,16 @@ Boot the stick in UEFI mode.
   **moonrise** look, its night-sky wallpaper, the scootbar status bar
   (themed by the look), and Firefox.
 - A welcome window on first login: what scoot is, the essential keys,
-  Install/Try pointers and doc links, designed in moonrise. On the
-  live session it reopens anytime from the **Welcome to scoot**
-  launcher or the bar's **Welcome** button. (Implementation note: it
-  is a styled local page, `file:///etc/scoot-welcome/index.html`,
-  opened in Firefox — zero new binaries on an ISO where every
-  megabyte counts toward the 2 GB release-asset cap, CSS theming
-  straight from the look palette, and links that just work.) The
-  installed system does not ship the page or the button — after
-  installing, the same guides live at <https://www.scoot.sh/>.
+  Install/Try pointers and doc links, in scoot.sh's own style (the
+  scoot cat on black, ginger links). On the live session it reopens
+  anytime from the **Welcome to scoot** launcher or the bar's
+  **Welcome** button. (Implementation note: it is a styled local page,
+  `file:///etc/scoot-welcome/index.html`, opened in Firefox — zero new
+  binaries on an ISO where every megabyte counts toward the 2 GB
+  release-asset cap, its art and font shipped beside it, and links
+  that just work.) The installed system does not ship the page or the
+  button — after installing, the same guides live at
+  <https://www.scoot.sh/>.
 - Calamares, with four **scoot** entries in the Desktop list (one per
   look: moonrise, music-desk, radial-burst, vinyl-sunset),
   **scoot (moonrise)** selected by default.
@@ -206,15 +207,17 @@ home-manager.users."<you>".programs.scoot.desktop.look = "music-desk";
 nixos-rebuild switch --flake /etc/nixos#scoot
 ```
 
-To try a look on the live session before installing, the same two
-options (system `programs.scoot.desktop.look` in `nix/live.nix` plus
-the welcome/config colors) are the only place the default lives.
+To build an ISO whose live session wears another look, change
+`nix/live.nix` in two places: `programs.scoot.desktop.look`, and the
+live compositor config (`liveConfig`: background and focus-ring colors
+plus the wallpaper), which repeats moonrise's values by hand. The
+welcome page does not depend on the look.
 
 ## Wallpaper credit
 
 The moonrise wallpaper (`docs/assets/wallpapers/moonrise.png` in the
-pinned scoot, shown by the live session, the installed default and the
-welcome page's hero banner) is &ldquo;Silhouetted trees under moon and
+pinned scoot, shown by the live session, the installed default and its
+login screen) is &ldquo;Silhouetted trees under moon and
 stars&rdquo; by saatvik 5554
 ([@saatvik_reddy_suravaram](https://unsplash.com/@saatvik_reddy_suravaram)),
 published on Unsplash
