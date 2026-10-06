@@ -69,7 +69,7 @@ Boot the stick in UEFI mode.
 
 Picking scoot writes a flake to the target (source of truth: `iso/target/`
 in this repo), then builds the first system from it with
-`nixos-install --flake <config-dir>#scoot` (no input overrides, 
+`nixos-install --flake <config-dir>#scoot` (no input overrides,
 `--no-write-lock-file`, `--no-channel-copy`, `substitute = false`,
 network cut):
 
@@ -227,6 +227,12 @@ checksum file as the trust anchor.
   log in, `journalctl --user-unit scoot-session.target -b` and
   `scoot msg version` after starting a headless session. If the
   greeter itself is missing, `systemctl status greetd`.
+- **`sudo nixos-rebuild switch` fails with "not owned by current user".**
+  With the home-folder layout the flake belongs to you, and root
+  cannot evaluate it (libgit2 ownership). Rebuild as yourself with
+  `nh os switch` (recommended: `programs.nh.flake` already points at
+  your copy) or `nixos-rebuild switch --use-remote-sudo --flake
+  ~/nixos-config#scoot` — never plain `sudo nixos-rebuild`.
 - **The installed system autologins.**
   That is a bug — the installer refuses Calamares' autologin snippets
   for the scoot choice by design. Report it with the contents of
