@@ -14,6 +14,122 @@
 # the installed system's closure must already be in the ISO's store.
 { config, pkgs, scoot, ... }:
 
+let
+  # The moonrise example bar layout (docs/examples/moonrise/bar.toml
+  # in the pinned scoot), used by the system bar below and the
+  # home-manager half alike, so whichever unit the session starts
+  # draws the same layout. Mirrors the installer template's
+  # scootBarLayouts.moonrise exactly (the drvPath gate holds).
+  moonriseBar =
+      let
+        font = "${pkgs.dejavu_fonts.minimal}/share/fonts/truetype/DejaVuSans.ttf";
+        execScripts = pkgs.runCommand "scootbar-exec-scripts" { } ''
+          mkdir -p $out/bin
+          cp ${scoot.outPath}/docs/examples/moonrise/load.sh $out/bin/load.sh
+          cp ${scoot.outPath}/docs/examples/moonrise/cpu.sh $out/bin/cpu.sh
+          chmod +x $out/bin/*
+        '';
+        glyph = pair: builtins.fromJSON ("\"" + pair + "\"");
+      in
+      {
+        left = [
+          "workspaces"
+          "window-title"
+        ];
+        center = [ "clock" ];
+        right = [
+          "load"
+          "cpu"
+          "network"
+          "volume"
+          "battery"
+          "terminal"
+          "browser"
+          "power"
+        ];
+        bar = {
+          inherit font;
+          height = 38;
+          margin = "10,14";
+          radius = 14;
+          opacity = 0.82;
+          font-size = 13;
+          padding = 10;
+          spacing = 8;
+          separator = 1;
+        };
+        colors = {
+          background = "#2B3648";
+          foreground = "#F6EEDC";
+          accent = "#FFA45C";
+          hover = "#FFD54A";
+          dim = "#9C8B95";
+          urgent = "#E87F6A";
+        };
+        workspaces = {
+          pill-shape = "circle";
+          pill-inset = 7;
+          item-gap = 3;
+          margin = 8;
+          disc = true;
+          inactive-color = "#B595AD";
+        };
+        window-title = {
+          icon = glyph "\\udb82\\udcc6";
+          show-app-id = false;
+          max-width = 360;
+        };
+        clock = {
+          format = "%-I:%M %P";
+          icon = glyph "\\udb80\\udd50";
+        };
+        exec.load = {
+          command = [ "${execScripts}/bin/load.sh" ];
+          icon = glyph "\\udb81\\ude1a";
+        };
+        exec.cpu = {
+          command = [ "${execScripts}/bin/cpu.sh" ];
+          icon = glyph "\\udb83\\udee0";
+        };
+        network = {
+          icon-wifi = map glyph [
+            "\\udb82\\udd1f"
+            "\\udb82\\udd22"
+            "\\udb82\\udd25"
+            "\\udb82\\udd28"
+          ];
+          icon-ethernet = glyph "\\udb80\\ude00";
+          show-text = false;
+        };
+        battery = {
+          icon = map glyph [
+            "\\udb80\\udc8e"
+            "\\udb80\\udc7b"
+            "\\udb80\\udc7e"
+            "\\udb80\\udc81"
+            "\\udb80\\udc79"
+          ];
+          icon-charging = glyph "\\udb80\\udc84";
+          icon-full = glyph "\\udb80\\udc79";
+        };
+        button.terminal = {
+          icon = glyph "\\udb80\\udd8d";
+          on-click.exec = [
+            "foot"
+            "--font=FiraCode Nerd Font:size=10"
+          ];
+        };
+        button.browser = {
+          icon = glyph "\\udb80\\udeaf";
+          on-click.exec = [ "firefox" ];
+        };
+        power = {
+          icon = glyph "\\udb81\\udc25";
+          on-click = "popup";
+        };
+      };
+in
+
 {
   imports = [ ../iso/target/hardware-configuration.nix ];
 
@@ -71,7 +187,14 @@
     greeter.enable = true;
   };
 
-  programs.scootbar.enable = true;
+  # The status bar: the moonrise example layout
+  # (docs/examples/moonrise/bar.toml in the pinned scoot), exactly as
+  # iso/target/configuration.nix renders for the canonical moonrise
+  # install (same values, so the drvPath gate holds).
+  programs.scootbar = {
+    enable = true;
+    settings = moonriseBar;
+  };
 
   # Themed ReGreet, exactly as iso/target/configuration.nix renders
   # for the canonical moonrise install (same Nix code, so the drvPath
@@ -116,7 +239,13 @@
     desktop.enable = true;
     desktop.look = "moonrise";
   };
+  # The installed bar draws the moonrise example layout (the same
+  # moonrise block the system half uses above), whichever unit the
+  # session starts; the home unit itself stays off, so exactly one
+  # daemon runs. Mirrors the installer patch's HM stanza.
   home-manager.users.scoot.programs.scootbar.enable = true;
+  home-manager.users.scoot.programs.scootbar.settings = moonriseBar;
+  home-manager.users.scoot.programs.scootbar.systemd.enable = false;
   home-manager.users.scoot.home.stateVersion = "25.11";
 
   system.stateVersion = "25.11";

@@ -21,6 +21,293 @@
 # autologins: the greeter below is always ReGreet.
 { config, pkgs, inputs, ... }:
 
+let
+  # The status bar layouts: each look's own example bar layout
+  # (docs/examples/<look>/bar.toml in the pinned scoot) — workspaces
+  # and window title left, clock center, system modules and launcher
+  # buttons right. Shared by the system bar (programs.scootbar below)
+  # and the home-manager half (the installer patch's HM stanza),
+  # so whichever bar unit the session starts draws the same layout:
+  # the home unit is disabled in favor of the system one, whose
+  # config names /etc/scootbar/bar.toml explicitly. The live-only
+  # Welcome button stays on the live session (nix/live.nix). Values
+  # are the examples' verbatim (icons are Nerd Font PUA glyphs, via
+  # JSON: Nix strings have no \U escape).
+  scootBarLayouts =
+    let
+        font = "${pkgs.dejavu_fonts.minimal}/share/fonts/truetype/DejaVuSans.ttf";
+        execScripts = pkgs.runCommand "scootbar-exec-scripts" { } ''
+          mkdir -p $out/bin
+          cp ${inputs.scoot.outPath}/docs/examples/moonrise/load.sh $out/bin/load.sh
+          cp ${inputs.scoot.outPath}/docs/examples/moonrise/cpu.sh $out/bin/cpu.sh
+          chmod +x $out/bin/*
+        '';
+        glyph = pair: builtins.fromJSON ("\"" + pair + "\"");
+        icons = {
+          app = glyph "\\udb82\\udcc6"; # U+F08C6 application
+          clock = glyph "\\udb80\\udd50"; # U+F0150
+          load = glyph "\\udb81\\ude1a"; # U+F061A
+          cpu = glyph "\\udb83\\udee0"; # U+F0EE0
+          wifi = map glyph [
+            "\\udb82\\udd1f" # U+F091F weakest
+            "\\udb82\\udd22" # U+F0922
+            "\\udb82\\udd25" # U+F0925
+            "\\udb82\\udd28" # U+F0928 strongest
+          ];
+          ethernet = glyph "\\udb80\\ude00"; # U+F0200
+          battery = map glyph [
+            "\\udb80\\udc8e" # U+F008E empty
+            "\\udb80\\udc7b" # U+F007B
+            "\\udb80\\udc7e" # U+F007E
+            "\\udb80\\udc81" # U+F0081
+            "\\udb80\\udc79" # U+F0079 full
+          ];
+          charging = glyph "\\udb80\\udc84"; # U+F0084
+          terminal = glyph "\\udb80\\udd8d"; # U+F018D
+          browser = glyph "\\udb80\\udeaf"; # U+F02AF
+          power = glyph "\\udb81\\udc25"; # U+F0425
+          brightness = map glyph [
+            "\\udb80\\udcdd" # U+F00DD dim
+            "\\udb80\\udcde" # U+F00DE
+            "\\udb80\\udcdf" # U+F00DF
+            "\\udb80\\udce0" # U+F00E0 bright
+          ];
+          bluetoothOff = glyph "\\udb80\\udcb2"; # U+F00B2
+          bluetoothOn = glyph "\\udb80\\udcaf"; # U+F00AF
+          bluetoothConnected = glyph "\\udb80\\udcb1"; # U+F00B1
+        };
+        stdRight = [
+          "load"
+          "cpu"
+          "network"
+          "volume"
+          "battery"
+          "terminal"
+          "browser"
+          "power"
+        ];
+        stdModules = maxWidth: {
+          window-title = {
+            icon = icons.app;
+            show-app-id = false;
+            max-width = maxWidth;
+          };
+          clock = {
+            format = "%-I:%M %P";
+            icon = icons.clock;
+          };
+          exec.load = {
+            command = [ "${execScripts}/bin/load.sh" ];
+            icon = icons.load;
+          };
+          exec.cpu = {
+            command = [ "${execScripts}/bin/cpu.sh" ];
+            icon = icons.cpu;
+          };
+          network = {
+            icon-wifi = icons.wifi;
+            icon-ethernet = icons.ethernet;
+            show-text = false;
+          };
+          battery = {
+            icon = icons.battery;
+            icon-charging = icons.charging;
+            icon-full = builtins.elemAt icons.battery 4;
+          };
+          button.terminal = {
+            icon = icons.terminal;
+            on-click.exec = [
+              "foot"
+              "--font=FiraCode Nerd Font:size=10"
+            ];
+          };
+          button.browser = {
+            icon = icons.browser;
+            on-click.exec = [ "firefox" ];
+          };
+          power = {
+            icon = icons.power;
+            on-click = "popup";
+          };
+        };
+        layouts = {
+          moonrise = {
+            left = [
+              "workspaces"
+              "window-title"
+            ];
+            center = [ "clock" ];
+            right = stdRight;
+            bar = {
+              inherit font;
+              height = 38;
+              margin = "10,14";
+              radius = 14;
+              opacity = 0.82;
+              font-size = 13;
+              padding = 10;
+              spacing = 8;
+              separator = 1;
+            };
+            colors = {
+              background = "#2B3648";
+              foreground = "#F6EEDC";
+              accent = "#FFA45C";
+              hover = "#FFD54A";
+              dim = "#9C8B95";
+              urgent = "#E87F6A";
+            };
+            workspaces = {
+              pill-shape = "circle";
+              pill-inset = 7;
+              item-gap = 3;
+              margin = 8;
+              disc = true;
+              inactive-color = "#B595AD";
+            };
+          } // stdModules 360;
+          music-desk = {
+            left = [
+              "workspaces"
+              "window-title"
+            ];
+            center = [ "clock" ];
+            right = stdRight;
+            bar = {
+              inherit font;
+              height = 40;
+              margin = 0;
+              radius = 0;
+              popup-radius = 14;
+              opacity = 0.7;
+              font-size = 13;
+              padding = 10;
+              spacing = 8;
+              separator = 1;
+            };
+            colors = {
+              background = "#FCFBFB";
+              foreground = "#1A2032";
+              accent = "#3D579A";
+              hover = "#5D7AB0";
+              dim = "#C9CBD0";
+              urgent = "#EE6F5E";
+            };
+            workspaces = {
+              pill-shape = "circle";
+              pill-inset = 7;
+              item-gap = 3;
+              margin = 8;
+              disc = true;
+              inactive-color = "#9AA0B0";
+            };
+          } // stdModules 320;
+          radial-burst = {
+            left = [
+              "workspaces"
+              "window-title"
+            ];
+            center = [ "clock" ];
+            right = [
+              "network"
+              "volume"
+              "brightness"
+              "bluetooth"
+              "battery"
+              "power"
+            ];
+            bar = {
+              inherit font;
+              height = 40;
+              margin = 12;
+              radius = 16;
+              opacity = 0.88;
+              font-size = 17;
+              padding = 12;
+              spacing = 14;
+            };
+            colors = {
+              background = "#241721";
+              foreground = "#fdef1d";
+              accent = "#31a9e5";
+              dim = "#99911d";
+              urgent = "#bf128d";
+            };
+            workspaces = {
+              pill-shape = "circle";
+              pill-inset = 7;
+              item-gap = 4;
+            };
+            window-title = {
+              icon = icons.app;
+              show-app-id = false;
+              max-width = 320;
+            };
+            clock = {
+              format = "%-I:%M %P";
+              icon = icons.clock;
+            };
+            network = {
+              icon-wifi = icons.wifi;
+              icon-ethernet = icons.ethernet;
+              show-text = false;
+            };
+            brightness.icon = icons.brightness;
+            bluetooth = {
+              icon-off = icons.bluetoothOff;
+              icon-on = icons.bluetoothOn;
+              icon-connected = icons.bluetoothConnected;
+            };
+            battery = {
+              icon = icons.battery;
+              icon-charging = icons.charging;
+              icon-full = builtins.elemAt icons.battery 4;
+            };
+            power = {
+              icon = icons.power;
+              on-click = "popup";
+            };
+          };
+          vinyl-sunset = {
+            left = [
+              "workspaces"
+              "window-title"
+            ];
+            center = [ "clock" ];
+            right = stdRight;
+            bar = {
+              inherit font;
+              height = 38;
+              margin = "10,14";
+              radius = 12;
+              opacity = 0.78;
+              font-size = 13;
+              padding = 10;
+              spacing = 8;
+              separator = 1;
+            };
+            colors = {
+              background = "#271A1F";
+              foreground = "#F1E3C6";
+              accent = "#E59560";
+              hover = "#FDC58B";
+              dim = "#604F50";
+              urgent = "#C76B47";
+            };
+            workspaces = {
+              pill-shape = "circle";
+              pill-inset = 7;
+              item-gap = 3;
+              margin = 8;
+              disc = true;
+              inactive-color = "#A08C7A";
+            };
+          } // stdModules 360;
+        };
+    in
+    layouts;
+in
+
 {
   imports = [
     ./hardware-configuration.nix
@@ -83,8 +370,13 @@
     greeter.enable = true;
   };
 
-  # The status bar, themed by the look through the desktop profile.
-  programs.scootbar.enable = true;
+  # The status bar, wearing the installed look's example layout
+  # (scootBarLayouts above, selected by the installed desktop.look).
+  programs.scootbar = {
+    enable = true;
+    settings = scootBarLayouts.${config.programs.scoot.desktop.look} or scootBarLayouts.moonrise;
+  };
+
 
   # The login screen wears the chosen look too: ReGreet's backdrop is
   # the look's wallpaper (vinyl-sunset ships no image, so its greeter
