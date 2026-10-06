@@ -7,7 +7,7 @@ installer."""
 import re
 import sys
 
-flake_path, config_path, lock_path, hw_path, mirror_path, live_path, patch_path, item_path, location_path, qemu_path, docker_path = sys.argv[1:]
+flake_path, config_path, lock_path, hw_path, mirror_path, live_path, patch_path, item_path, location_path, qemu_path, docker_path, repo_path = sys.argv[1:]
 
 failures = []
 
@@ -182,7 +182,10 @@ for _side, _text in (("target configuration.nix", config), ("mirror", mirror)):
 check('music-desk = inputs.scoot.outPath' in config, "template greeter wallpaper must come from the scoot tree (inputs.scoot.outPath)")
 check('moonrise = scoot.outPath' in mirror, "mirror greeter wallpaper must come from the scoot tree (scoot.outPath)")
 import os as _os
-_repo_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(flake_path))))
+# The repo root arrives as an explicit argv (a store path in the
+# sandbox, a checkout path locally): the other argv are all store
+# files there, so no dirname walk can reach it.
+_repo_root = repo_path
 _root_flake = open(_os.path.join(_repo_root, "flake.nix")).read()
 check("specialArgs" in _root_flake and "inherit scoot" in _root_flake, "flake.nix lost the mirror's scoot specialArg (greeter wallpaper)")
 

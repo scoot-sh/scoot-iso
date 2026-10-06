@@ -203,7 +203,8 @@
               ${./nix/packagechooser-scoot.conf} \
               ${./nix/packagechooser-scoot-location.conf} \
               ${./scripts/qemu-test.sh} \
-              ${./scripts/build-iso-docker.sh} && touch $out
+              ${./scripts/build-iso-docker.sh} \
+              ${./.} && touch $out
           '';
         }
       );
