@@ -7,7 +7,7 @@ installer."""
 import re
 import sys
 
-flake_path, config_path, lock_path, hw_path, mirror_path, live_path, patch_path, item_path, location_path, qemu_path = sys.argv[1:]
+flake_path, config_path, lock_path, hw_path, mirror_path, live_path, patch_path, item_path, location_path, qemu_path, docker_path = sys.argv[1:]
 
 failures = []
 
@@ -27,6 +27,7 @@ patch = open(patch_path).read()
 item = open(item_path).read()
 location = open(location_path).read()
 qemu = open(qemu_path).read()
+docker = open(docker_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
 SCOOT_REV = "79aa76127d1670209e489ed08ff451056d95e932"
@@ -196,6 +197,14 @@ check("--no-channel-copy" in qemu, "qemu-test lost --no-channel-copy")
 check('QEMU_BIN="${QEMU_BIN:-qemu-system-x86_64}"' in qemu, "qemu-test lost the QEMU_BIN override (aarch64 runs)")
 check('QEMU_MACHINE="${QEMU_MACHINE:-q35,accel=kvm:tcg}"' in qemu, "qemu-test lost the QEMU_MACHINE override")
 check('QEMU_MEM="${QEMU_MEM:-4G}"' in qemu, "qemu-test lost the QEMU_MEM override")
+
+# Docker one-command build: image pinned by digest (never :latest),
+# check mode for fast plumbing validation, caller-owned output.
+check('DIGEST_AMD64="sha256:' in docker and 'DIGEST_ARM64="sha256:' in docker, "docker script lost the per-arch digest pins")
+check("nixos/nix@$DIGEST" in docker, "docker script lost the digest-pinned image ref")
+check(":latest" not in docker, "docker script must not use :latest")
+check("--check" in docker, "docker script lost check mode")
+check("CALLER_UID" in docker, "docker script lost the caller-ownership handoff")
 
 if failures:
     print("patch-consistency FAILED:")

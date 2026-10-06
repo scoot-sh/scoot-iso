@@ -32,7 +32,7 @@ jobs:
           nix build .#packages.x86_64-linux.calamares-nixos-scoot --print-build-logs
       - name: "render check (installer writer matrix)"
         run: |
-          sudo python3 tests/render_check.py result-patched-src/src/modules/nixos/main.py iso/target
+          sudo env PATH="$PATH" python3 tests/render_check.py result-patched-src/src/modules/nixos/main.py iso/target
 
   build-iso:
     needs: check
@@ -59,6 +59,33 @@ jobs:
         with:
           name: scoot-iso-x86_64-linux
           path: result-iso/iso/*.iso
+          retention-days: 14
+
+  # The documented Docker one-command build, for x86_64: runs the pinned
+  # nixos/nix image, builds the ISO inside it, checks the output's
+  # checksum/size. (It rebuilds rather than reusing build-iso's output:
+  # the point is proving the documented command works end to end.)
+  docker-build:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: build ISO via Docker
+        run: |
+          ISO_OUTDIR=docker-iso-out scripts/build-iso-docker.sh
+      - name: measure the Docker-built ISO
+        run: |
+          iso=$(echo docker-iso-out/*.iso)
+          bytes=$(stat -c%s "$iso")
+          echo "## Docker ISO size" >> "$GITHUB_STEP_SUMMARY"
+          echo "$iso: $bytes bytes ($(numfmt --to=iec "$bytes"))" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum "$iso" | tee SHA256SUMS-docker >> "$GITHUB_STEP_SUMMARY"
+      - name: upload Docker-built checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoot-iso-docker-checksum
+          path: SHA256SUMS-docker
           retention-days: 14
 
   # Probe: do GitHub's standard hosted runners expose /dev/kvm once a

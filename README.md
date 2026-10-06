@@ -26,6 +26,24 @@ nixos-rebuild build-image --image-variant iso-installer \
   --flake github:scoot-sh/scoot-iso#scoot-live-x86_64-linux
 ```
 
+Without nix, the same build runs in Docker (pinned official
+`nixos/nix` image, scoot Cachix plus cache.nixos.org so most of it
+downloads); the `.iso` lands in `./scoot-iso-out/` owned by you:
+
+```sh
+scripts/build-iso-docker.sh
+```
+
+`ISO_PLATFORM=linux/amd64` builds x86_64 on an ARM Mac (emulated,
+slow); natively each arch builds its own ISO. The script prints
+elapsed time and the output listing; `scripts/build-iso-docker.sh
+--check` runs `nix flake check` in the image instead (fast plumbing
+validation). About 20 GB free and some 30 minutes on a warm cache.
+
+When release hosting exists, downloading the ISO is the third way;
+until then there are two. GitHub release assets cap at 2 GB (see
+below), so first releases publish out of band.
+
 Apple Silicon Macs need the Asahi installer, not this ISO: bare-metal
 Apple Silicon boots only through Apple's bootloader chain, which a
 generic ISO cannot provide.

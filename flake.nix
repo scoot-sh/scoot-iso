@@ -196,7 +196,8 @@
               ${./nix/calamares-patch.py} \
               ${./nix/packagechooser-scoot.conf} \
               ${./nix/packagechooser-scoot-location.conf} \
-              ${./scripts/qemu-test.sh} && touch $out
+              ${./scripts/qemu-test.sh} \
+              ${./scripts/build-iso-docker.sh} && touch $out
           '';
         }
       );
