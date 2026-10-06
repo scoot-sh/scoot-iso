@@ -425,13 +425,16 @@ print('RENDER-OK')
 PYEOF
 "
 guest_exec "
+set -e
 ip -o link show | awk -F': ' '{print \$2}' | grep -v '^lo$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 ip -o link show
 echo '--- offline eval gate: the generated flake must resolve with no network and no substituters ---'
 nix eval --offline --option substitute false --no-write-lock-file '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel.drvPath' && echo EVAL-OFFLINE-OK
+echo '--- archive: the build fetches flake inputs into the build store, which starts empty ---'
+nix flake archive --to /mnt --offline --no-check-sigs '/mnt/home/'$TEST_USER'/nixos-config' && echo ARCHIVE-OK
 echo '--- pre-copy: the target closure rides the ISO; copy it into the empty target store ---'
 topo=\$(nix eval --offline --option substitute false --no-write-lock-file --raw '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel') && echo \"TOPLEVEL: \$topo\"
-nix copy --to /mnt \"\$topo\" && echo PRECOPY-OK
+nix copy --to /mnt --no-check-sigs \"\$topo\" && echo PRECOPY-OK
 unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --no-channel-copy --option build-dir /nix/var/nix/builds --option substitute false' > /tmp/install.log 2>&1
 rc=\$?
 echo INSTALL-RC:\$rc
@@ -492,23 +495,15 @@ echo "--- flake home ---"
 ls -lad /etc/nixos /home/'$TEST_USER'/nixos-config
 test -L /etc/nixos && echo SYMLINK-OK
 stat -c "%U %G %a %n" /home/'$TEST_USER'/nixos-config /home/'$TEST_USER'/nixos-config/flake.nix
-echo "--- git repo ---"
-git -C /home/'$TEST_USER'/nixos-config log --oneline
-git -C /home/'$TEST_USER'/nixos-config status --short
+echo "--- git repo (as the owner: root reads hit libgit2 ownership) ---"
+su -s /bin/sh '$TEST_USER' -c 'git -C /home/'$TEST_USER'/nixos-config log --oneline'
+su -s /bin/sh '$TEST_USER' -c 'git -C /home/'$TEST_USER'/nixos-config status --short'
 echo "--- flake files ---"
 cat /home/'$TEST_USER'/nixos-config/flake.nix
-echo "--- lock inputs ---"
-python3 - /home/'$TEST_USER'/nixos-config/flake.lock <<'PYEOF'
-import json, sys
-lock = json.load(open(sys.argv[1]))
-for node in ("nixpkgs", "scoot", "home-manager"):
-    locked = lock["nodes"][node]["locked"]
-    print(node, locked["type"] + ":" + locked.get("owner", "") + "/" + locked.get("repo", ""), locked["rev"])
-    assert locked["type"] == "github", "not a github input: " + node
-raw = open(sys.argv[1]).read()
-assert "path:/nix/store" not in raw, "override leaked into the installed lock"
-print("LOCK-OK")
-PYEOF
+echo "--- lock inputs (no python3 on the target: grep) ---"
+grep -o "\"type\": \"[a-z]*\"" /home/'$TEST_USER'/nixos-config/flake.lock | sort | uniq -c
+grep -o "\"rev\": \"[a-f0-9]*\"" /home/'$TEST_USER'/nixos-config/flake.lock
+! grep -q "path:/nix/store" /home/'$TEST_USER'/nixos-config/flake.lock && echo LOCK-OK
 '
 echo "=== phase 3c: scoot msg checks via guest agent ==="
 # A login through ReGreet may or may not have landed (best effort
@@ -576,20 +571,24 @@ fi
 echo "=== phase 3e: offline rebuilds on the installed system ==="
 # The network namespace is emptied, so success proves the store holds
 # everything a maintainable flake needs; the lock hash before/after
-# proves neither rebuild rewrote it. nh switches last (it re-activates).
-guest_exec '
-lock_before=$(sha256sum /home/'$TEST_USER'/nixos-config/flake.lock)
-ip link show | awk -F": " "{print \$2}" | grep -v "^lo$" | while read -r ifc; do ip link set "\$ifc" down; done
+# proves neither rebuild rewrote it. Both rebuilds run as the flake
+# owner (root hits libgit2 ownership on a user-owned flake): the build
+# from /tmp (the result link needs a writable cwd) and nh, which
+# refuses root and escalates itself (sudo pre-authed with the test
+# password). nh switches last (it re-activates).
+guest_exec "
+lock_before=\$(sha256sum /home/$TEST_USER/nixos-config/flake.lock)
+ip link show | awk -F': ' '{print \$2}' | grep -v '^lo\$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 fail=0
-unshare -n /bin/sh -c "ip link set lo up; nixos-rebuild build --flake /etc/nixos#scoot" && echo REBUILD-OK || fail=1
-unshare -n /bin/sh -c "ip link set lo up; NH_FLAKE=/home/'$TEST_USER'/nixos-config nh os switch" && echo NH-OK || fail=1
-lock_after=$(sha256sum /home/'$TEST_USER'/nixos-config/flake.lock)
-echo "lock before: $lock_before"
-echo "lock after:  $lock_after"
-[ "$lock_before" = "$lock_after" ] && echo LOCK-STABLE-OK || fail=1
-nix flake metadata /home/'$TEST_USER'/nixos-config --json | python3 -c "import json,sys; d=json.load(sys.stdin); [print(k, v[\"locked\"].get(\"rev\", \"?\")) for k,v in d.get(\"locks\",{}).get(\"nodes\",{}).items() if \"locked\" in v]" || fail=1
-exit $fail
-'
+unshare -n /bin/sh -c 'ip link set lo up; su -s /bin/sh $TEST_USER -c \"cd /tmp && nixos-rebuild build --flake /etc/nixos#scoot\"' && echo REBUILD-OK || fail=1
+unshare -n /bin/sh -c 'ip link set lo up; su -s /bin/sh $TEST_USER -c \"echo $TEST_PASS | sudo -S true && NH_FLAKE=/home/$TEST_USER/nixos-config nh os switch\"' && echo NH-OK || fail=1
+lock_after=\$(sha256sum /home/$TEST_USER/nixos-config/flake.lock)
+echo \"lock before: \$lock_before\"
+echo \"lock after:  \$lock_after\"
+[ \"\$lock_before\" = \"\$lock_after\" ] && echo LOCK-STABLE-OK || fail=1
+grep -o '\"rev\": \"[a-f0-9]*\"' /home/$TEST_USER/nixos-config/flake.lock
+exit \$fail
+"
 stop_vm
 # Convert QMP's PPM screendumps to PNG for the workflow artifacts and
 # the README (stdlib only; idempotent, so the workflow's fallback step

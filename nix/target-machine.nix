@@ -28,6 +28,10 @@
     extra-trusted-public-keys = [
       "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
     ];
+    experimental-features = [
+      "nix-command"
+      "flakes"
+    ];
   };
 
   # The install account, exactly as the installer's USERS_STANZA

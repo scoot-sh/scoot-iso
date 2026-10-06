@@ -47,6 +47,12 @@
     extra-trusted-public-keys = [
       "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
     ];
+    # The installed system is a flake (~/nixos-config): `nix flake`
+    # and `nh` must work out of the box.
+    experimental-features = [
+      "nix-command"
+      "flakes"
+    ];
   };
 
   # @@SCOOT_USERS@@
