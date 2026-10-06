@@ -498,8 +498,8 @@ ls -lad /etc/nixos /home/'$TEST_USER'/nixos-config
 test -L /etc/nixos && echo SYMLINK-OK
 stat -c "%U %G %a %n" /home/'$TEST_USER'/nixos-config /home/'$TEST_USER'/nixos-config/flake.nix
 echo "--- git repo (as the owner: root reads hit libgit2 ownership) ---"
-su -s /bin/sh '$TEST_USER' -c 'git -C /home/'$TEST_USER'/nixos-config log --oneline'
-su -s /bin/sh '$TEST_USER' -c 'git -C /home/'$TEST_USER'/nixos-config status --short'
+sudo -u '$TEST_USER' git -C /home/'$TEST_USER'/nixos-config log --oneline
+sudo -u '$TEST_USER' git -C /home/'$TEST_USER'/nixos-config status --short
 echo "--- flake files ---"
 cat /home/'$TEST_USER'/nixos-config/flake.nix
 echo "--- lock inputs (no python3 on the target: grep) ---"
