@@ -202,26 +202,6 @@ wait_ga() {
   tail -30 "$WORKDIR"/serial-*.log 2>/dev/null || echo "no serial log"
   echo "--- qemu process ---"
   pgrep -af "qemu-system" || echo "no qemu process"
-  echo "--- TEMP DEBUG: SSH dump (user-mode NIC :10022 -> :22) ---"
-  for _ in $(seq 1 20); do
-    if sshpass -p debug123 ssh -p 10022 -o StrictHostKeyChecking=no -o ConnectTimeout=5 nixos@localhost true 2>/dev/null; then break; fi
-    sleep 5
-  done
-  sshpass -p debug123 ssh -p 10022 -o StrictHostKeyChecking=no nixos@localhost '
-    echo "=== agent ==="; systemctl status qemu-guest-agent --no-pager || true
-    echo "=== virtio ports ==="; ls -la /dev/virtio-ports/ || true
-    echo "=== virtio modules ==="; lsmod | grep -i virtio || true
-    echo "=== dri ==="; ls -la /dev/dri/ || true
-    echo "=== greetd ==="; systemctl status greetd --no-pager || true
-    echo "=== scoot session ==="; pgrep -af scoot | head -5 || true
-    echo "=== failed units ==="; systemctl --failed --no-pager || true
-    echo "=== modules-load ==="; systemctl status systemd-modules-load --no-pager || true
-    echo "=== journal errors ==="; journalctl -b -p err --no-pager | head -30 || true
-    echo "=== firefox: nixos home ==="; ls -ladn /home/nixos; ls -la /home/nixos/ | head -20
-    echo "=== firefox: mozilla dir ==="; ls -la /home/nixos/.mozilla/ 2>&1 || true
-    echo "=== firefox: process env ==="; for pid in $(pgrep -f "[f]irefox.*scoot-welcome"); do echo "== $pid =="; tr "\0" "\n" < /proc/$pid/environ | grep -E "^(HOME|USER|LOGNAME|XDG_RUNTIME_DIR|WAYLAND_DISPLAY|MOZ_|DBUS_SESSION)" || true; done
-    echo "=== firefox: passwd ==="; getent passwd nixos
-  ' || echo "SSH dump failed"
   return 1
 }
 

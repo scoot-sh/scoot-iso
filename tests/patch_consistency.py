@@ -174,6 +174,12 @@ check("browser.aboutwelcome.enabled" in live, "live session lost the first-run s
 check("scoot-firefox.log" in live, "live session lost the firefox stderr capture")
 check("chown -R nixos:users /home/nixos" in live, "live session lost the recursive home chown")
 
+# No debug scaffolding ships: no guest password, no openssh on the
+# live image, no sshpass anywhere near the test.
+check("debug123" not in live and "debug123" not in qemu, "debug password leaked in")
+check("sshpass" not in qemu, "sshpass leaked into the test")
+check("services.openssh" not in live, "live session must not enable openssh (was debug scaffolding)")
+
 # QEMU test installs the canonical config only (else the shipped
 # closure would not match): user/host/timezone pinned to the mirror.
 check("python3 - '$TEST_USER' 'scoot' 'scoot' 'UTC' 'en_US.UTF-8' '25.11'" in qemu, "qemu-test lost the canonical render identity (must match the mirror)")
