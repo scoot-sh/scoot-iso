@@ -88,6 +88,42 @@ Boot the stick in UEFI mode.
   system keeps the profile default — dim at 2 minutes, lock at 4,
   screens off at 5.
 
+## Installing needs the network
+
+Connect to the network (a cable, or Wi-Fi with `nmtui` in a terminal)
+before you start the installer. Calamares checks for it on its first
+page and will not go past that page without it. This holds for the
+**Install** icon and for `sudo calamares` alike.
+
+The install uses the normal substituters (cache.nixos.org plus the
+scoot Cachix the installed config trusts), so real hardware, whose kernel modules,
+filesystems and config differ from anything the ISO could ship,
+installs like any other NixOS. The ISO's store still helps:
+`nixos-install` also substitutes from the live system's store, so every
+path the ISO already carries is copied locally instead of downloaded,
+and only what your machine adds comes over the network.
+
+An offline install is not something the graphical installer can do.
+Every graphical install writes its own `hardware-configuration.nix`
+(your disks by UUID, your modules) plus your user name, host name,
+timezone and locale, so its system never matches the one closure the
+ISO ships, and the missing paths have to come from the network.
+
+If the network drops after the first page, the install stops short of
+installing the system. The installer checks the network again just
+before `nixos-install` and, still offline, refuses with **"scoot install
+needs the network"**, naming the store paths it would need. By then it
+has already:
+
+- partitioned and formatted the target as you chose on the Partitions
+  page, and mounted it;
+- written the generated config (`nixos-generate-config`) and the scoot
+  flake, with its first git commit, to `~/nixos-config` or `/etc/nixos`.
+
+Nothing is in the target's Nix store and no bootloader is installed,
+so the disk does not boot. Reconnect and run the installer again from
+the start.
+
 ## What the installer writes
 
 Picking scoot writes a flake to the target (source of truth: `iso/target/`
@@ -137,40 +173,6 @@ programs.scoot.desktop.look = "music-desk";
 # ... and the home-manager user half in the same file, then:
 # nh os switch
 ```
-
-With the network up, the install uses the normal substituters
-(cache.nixos.org plus the scoot Cachix above), so real hardware —
-whose kernel modules, filesystems and config differ from the ISO's
-shipped closure — installs like any other NixOS. With the network
-down, the install runs fully offline from the shipped store
-(`substitute = false`), proven by `scripts/qemu-test.sh`, which
-installs the canonical config inside an emptied network namespace,
-then reboots and rebuilds the installed system offline both ways
-(`nixos-rebuild build` and `nh os switch`). Three pieces make the
-offline path work:
-
-- Every flake input source the target needs rides the ISO (resolved
-  from the target's own lock at ISO build time into
-  `isoImage.storeContents`), so no `--override-input` is needed and
-  the installed `flake.lock` stays pristine `github:` pins.
-- The reference target (`nix/target-machine.nix`) names the exact
-  system the test installs (same inputs, user, host, options, look,
-  static QEMU hardware), so its toplevel — also in
-  `isoImage.storeContents` — is the installed closure bit for bit.
-  `tests/render_check.py` gates that they evaluate to the same
-  toplevel (drvPath match), so they cannot drift.
-- The installer pre-copies that closure from the live store into the
-  empty target store (`nix copy --to`, since building into the target
-  store does not consult the live store) and skips the legacy channel
-  (`--no-channel-copy`: a flake system never reads channels, and the
-  copy cannot work offline).
-- Before partitioning, the installer probes the substituters and logs
-  which mode it takes; offline, it pre-flights the target closure
-  against the live store first. When this hardware needs paths the
-  ISO does not ship, the install refuses before writing anything,
-  naming them ("connect to the network, or ..."). `qemu-test.sh`
-  proves both halves: a hardware tweak refuses offline before
-  partitioning, and succeeds with the network up.
 
 After install, with network,
 `nixos-rebuild switch --flake /etc/nixos#scoot` manages the system
@@ -255,18 +257,16 @@ checksum file as the trust anchor.
   should have failed — report it). Verify with:
   `nix flake check github:scoot-sh/scoot-iso` (runs
   `patch-consistency`).
-- **Install fails with the network cut.**
-  A closure path is missing from the ISO store. The QEMU test installs
-  network-less on every run; if it regressed, compare
-  `nix path-info -r` of the reference target
-  (`nixosConfigurations.scoot-target-x86_64-linux`) against the ISO's
-  `isoImage.storeContents` and check which path the installer tried to
-  fetch in `/tmp/install.log` (saved by the QEMU script).
+- **The installer will not go past its first page.**
+  Its requirements list says it needs an internet connection. Connect
+  (a cable, or Wi-Fi with `nmtui` in a terminal), wait a few seconds
+  for the check to refresh, and continue.
 - **Install refuses with "scoot install needs the network".**
-  This hardware needs store paths the ISO does not ship (the message
-  names them). Connect to the network and install again — with the
-  network up the install uses the normal substituters — or install on
-  hardware matching the ISO.
+  The network dropped after the first page. The target is already
+  partitioned and formatted and its config written, but nothing is
+  installed and it does not boot (see
+  [Installing needs the network](#installing-needs-the-network)).
+  Reconnect and run the installer again from the start.
 - **Installed system boots to a black screen.**
   ReGreet (cage) is up but the scoot session failed: switch to a VT,
   log in, `journalctl --user-unit scoot-session.target -b` and
@@ -289,6 +289,49 @@ checksum file as the trust anchor.
 nix flake check          # patch-consistency + module eval (cheap, runs everywhere)
 nix flake lock --update-input scoot   # re-pin scoot (then re-verify the look list + anchors)
 ```
+
+### The QEMU test, and the offline install it drives
+
+`scripts/qemu-test.sh` boots the ISO in QEMU, installs, boots the
+installed disk, logs in through ReGreet and checks the session. CI runs
+it on every PR (x86_64, KVM). It is a maintainer tool, not a way to
+install a machine.
+
+Its main install runs with the network cut. That works only because
+it installs one fixed **canonical** system: user and host `scoot`,
+UTC, `en_US.UTF-8`, moonrise, the home-folder layout, and the static
+QEMU hardware in `iso/target/hardware-configuration.nix` (a virtio
+disk at `/dev/vda`, no UUIDs). The reference target
+`nix/target-machine.nix` describes that same system, its toplevel
+rides the ISO (`isoImage.storeContents`, along with every flake input
+source), and `tests/render_check.py` gates that the installer's
+template, rendered with the canonical identity, evaluates to exactly
+that toplevel. The installer's offline branch then pre-copies the
+closure into the empty target store (`nix flake archive --to`,
+`nix copy --to`) and installs with `substitute = false`, so any drift
+fails loudly instead of downloading. Change anything (a user name, one
+kernel module) and the closure no longer matches: the test's
+hardware-tweak case proves the offline pre-flight refuses that, and
+that the same tweak installs with the network up.
+
+To run it locally (the target files come from the flake, so they are
+byte-for-byte what the installer embeds):
+
+```sh
+nix build .#packages.x86_64-linux.iso -o result-iso
+nix build .#packages.x86_64-linux.target-flake -o result-target-flake
+nix build .#packages.x86_64-linux.target-configuration -o result-target-config
+nix build .#packages.x86_64-linux.target-hardware -o result-target-hardware
+scripts/qemu-test.sh --iso result-iso/iso/*.iso \
+  --target-flake "$(readlink -f result-target-flake)" \
+  --target-config "$(readlink -f result-target-config)" \
+  --target-hardware "$(readlink -f result-target-hardware)" \
+  --workdir /tmp/scoot-iso-qemu
+```
+
+It needs QEMU, OVMF and `qemu-img`; screenshots land in the workdir.
+For aarch64 (Asahi, or Apple Silicon with HVF), see the environment
+variables in the script's header.
 
 Re-pinning nixpkgs requires re-verifying the Calamares anchors (the
 patch fails loudly if they moved) and the parity between

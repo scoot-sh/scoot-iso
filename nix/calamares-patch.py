@@ -3,24 +3,31 @@
 
 The scoot choice writes a flake-based target (flake.nix + flake.lock +
 configuration.nix from this repo, into ~/nixos-config by default or
-/etc/nixos) and installs it with `nixos-install --flake`. With the
-network up (probed before partitioning by the scoot-netprobe
-shellprocess step, falling back to a live probe here), the install
-uses the normal substituters (cache.nixos.org plus the scoot Cachix
-the flake already trusts), so real hardware — whose kernel modules,
-filesystems and config differ from the ISO's shipped closure —
-installs like any other NixOS. Only when offline does the install
-use the shipped store (`nix flake archive --to` for the flake inputs,
-`nix copy --to` for the target closure, `substitute=false` throughout,
-`--no-channel-copy` always): every input source the installed flake
-needs rides the ISO (resolved from its own lock at ISO build time),
-and the lock is never rewritten (--no-write-lock-file), so the
-installed flake.lock stays pristine github pins. Offline, a
-pre-flight (target toplevel eval plus a live-store closure check)
-fails BEFORE nixos-install writes anything when this hardware needs
-paths the ISO does not ship, naming them ("connect to the network,
-or ..."). Everything else (hostname, user, timezone,
-locale, firefox) mirrors the stock classic path's variables.
+/etc/nixos) and installs it with `nixos-install --flake`.
+
+The graphical install needs the network. Calamares' Welcome page
+requires `internet` (the pinned welcome.conf; asserted below), so
+Next stays disabled offline, and a GUI install's generated hardware
+file, user, host, timezone and locale never match the canonical
+closure the ISO ships. The install uses the normal substituters
+(cache.nixos.org plus the scoot Cachix the flake already trusts);
+nixos-install also substitutes from the live store, so paths the ISO
+ships copy locally instead of downloading.
+
+The offline branch (`nix flake archive --to` for the flake inputs,
+`nix copy --to` for the target closure, `substitute=false`) exists
+for the canonical config the QEMU test installs (scripts/qemu-test.sh)
+and as a guard for a network lost after the Welcome page: the
+scoot-netprobe shellprocess step records the mode before partitioning,
+and when it is offline a pre-flight (target toplevel eval plus a
+live-store closure check) refuses with the missing paths. In the GUI
+that refusal comes after the partition and mount jobs and after this
+module has written the generated and flake configs, but before
+nixos-install writes anything to the target store. The installed
+flake.lock is never rewritten (--no-write-lock-file), and
+`--no-channel-copy` holds in both modes. Everything else (hostname,
+user, timezone, locale, firefox) mirrors the stock classic path's
+variables.
 
 Every anchor is asserted to occur exactly once, so a nixpkgs re-pin that
 changes the upstream files fails the ISO build loudly instead of silently
@@ -45,6 +52,25 @@ def replace_once(content: str, anchor: str, replacement: str, name: str) -> str:
             "upstream changed, update the patch"
         )
     return content.replace(anchor, replacement, 1)
+
+
+def welcome_required(welcome_conf: str):
+    """The `requirements.required:` item list of welcome.conf, or None
+    when there is no such block (comments and blank lines skipped)."""
+    items = None
+    for line in welcome_conf.splitlines():
+        code = line.split("#", 1)[0].rstrip()
+        if not code.strip():
+            continue
+        if code.strip() == "required:":
+            items = []
+            continue
+        if items is not None:
+            if code.strip().startswith("- "):
+                items.append(code.strip()[2:].strip())
+            else:
+                break
+    return items
 
 
 HM_USER_STANZA = """\
@@ -157,6 +183,18 @@ def main() -> None:
         location_text = f.read()
     with open(netprobe_file) as f:
         netprobe_text = f.read()
+    with open(f"{ext_src}/src/config/modules/welcome.conf") as f:
+        welcome_text = f.read()
+
+    # The README and the refusal text say the graphical install needs
+    # the network because the Welcome page REQUIRES `internet` (Next
+    # stays disabled without it). A re-pin that drops it from
+    # `required:` would make those words false, so fail the build.
+    # `- internet` also sits under `check:`, so read the required block
+    # itself: its indented `- ` items up to the next key.
+    required = welcome_required(welcome_text)
+    if required is None or "internet" not in required:
+        raise SystemExit("welcome.conf no longer requires internet; the online-only install docs need revisiting")
 
     if "@@SYSTEM@@" not in flake_text:
         raise SystemExit("target flake.nix lost its @@SYSTEM@@ placeholder")
@@ -214,7 +252,8 @@ def main() -> None:
         1,
     )
     # The netprobe step runs FIRST in the exec phase, before partition:
-    # it only records the network verdict, so it can never fail the job.
+    # it only records the network verdict, so it never fails the job
+    # (bounded by `timeout 20`, inside the step's 30 s limit).
     exec_anchor_probe = "- exec:\n  - partition\n"
     if settings.count(exec_anchor_probe) != 1:
         raise SystemExit("settings.conf exec anchor not found exactly once; upstream changed, update the patch")
@@ -240,6 +279,10 @@ def main() -> None:
         raise SystemExit("netprobe conf must always exit 0 (the verdict is data, never a job failure)")
     if "/tmp/scoot-netmode" not in netprobe_text:
         raise SystemExit("netprobe conf lost the /tmp/scoot-netmode handoff")
+    if "rm -f /tmp/scoot-netmode" not in netprobe_text:
+        raise SystemExit("netprobe conf must drop a stale verdict before probing")
+    if "timeout 20 python3" not in netprobe_text or "timeout: 30" not in netprobe_text:
+        raise SystemExit("netprobe conf must cap the probe (timeout 20) inside the step's 30 s limit")
 
     # 2. When scoot is chosen, write our flake files instead of the
     # classic configuration.nix. The stock `variables` dict (hostname,
@@ -371,8 +414,12 @@ def main() -> None:
     # sequences before partition), falling back to a live probe of the
     # substituters here when the file is missing. The mode is logged;
     # offline, a pre-flight (target toplevel eval plus a live-store
-    # closure check) fails BEFORE nixos-install writes anything when
-    # this hardware needs paths the ISO does not ship, naming them.
+    # closure check) refuses when the target needs paths the ISO does
+    # not ship, naming them. A GUI install only gets here offline if
+    # the network dropped after the Welcome page's internet check; by
+    # then the disk is partitioned and mounted and the configs above
+    # are written, but nothing is in the target store, so the message
+    # says exactly that and sends the user back to the start.
     anchor_cmd = (
         '            "--option",\n'
         '            "build-dir",\n'
@@ -418,7 +465,7 @@ def main() -> None:
         + '        if scoot_netmode != "online":\n'
         + '            _scoot_ev = subprocess.run(["nix", "eval", "--offline", "--option", "substitute", "false", "--no-write-lock-file", "--raw", scoot_flake_dir + "#nixosConfigurations.scoot.config.system.build.toplevel"], capture_output=True, text=True)\n'
         + '            if _scoot_ev.returncode != 0:\n'
-        + '                return (_("scoot install needs the network"), _("Offline install cannot proceed: the installed system could not be evaluated from the ISO ({}). Connect to the network and install again, or install on hardware matching the ISO.").format((_scoot_ev.stderr or "")[-500:]))\n'
+        + '                return (_("scoot install needs the network"), _("The network is down and the installed system could not be evaluated from the ISO ({}). The target partitions are already formatted and the configuration is written, but no system was installed and nothing is bootable yet. Connect to the network and run the installer again.").format((_scoot_ev.stderr or "")[-500:]))\n'
         + '            scoot_toplevel = _scoot_ev.stdout.strip().split()[-1]\n'
         + '            try:\n'
         + '                _scoot_pi = subprocess.run(["nix", "path-info", "-r", "--offline", scoot_toplevel], capture_output=True, text=True)\n'
@@ -446,7 +493,7 @@ def main() -> None:
         + '                scoot_shown = ", ".join(sorted(scoot_missing)[:8])\n'
         + '                if len(scoot_missing) > 8:\n'
         + '                    scoot_shown += " (and {} more)".format(len(scoot_missing) - 8)\n'
-        + '                return (_("scoot install needs the network"), _("Offline install cannot proceed: this hardware needs {} store paths that are not on the ISO ({}). Connect to the network and install again, or install on hardware matching the ISO.").format(len(scoot_missing), scoot_shown))\n'
+        + '                return (_("scoot install needs the network"), _("The network is down and this system needs {} store paths that are not on the ISO ({}). The target partitions are already formatted and the configuration is written, but no system was installed and nothing is bootable yet. Connect to the network and run the installer again.").format(len(scoot_missing), scoot_shown))\n'
         + '            subprocess.check_output(["nix", "flake", "archive", "--to", root_mount_point, "--offline", "--no-check-sigs", scoot_flake_dir], stderr=subprocess.STDOUT)\n'
         + '            subprocess.check_output(["nix", "copy", "--to", root_mount_point, "--no-check-sigs", scoot_toplevel], stderr=subprocess.STDOUT)\n'
         + "        nixosInstallCmd.extend(\n"
