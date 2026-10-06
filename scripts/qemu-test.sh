@@ -6,9 +6,11 @@
 #    templates (repr-embedding check against the shipped main.py), then
 #    proves the installer's network-mode logic piece by piece:
 #    2a. a non-canonical hardware tweak (an extra initrd module), with
-#        the network cut, must REFUSE before partitioning, naming the
-#        missing store paths ("connect to the network, or ..."), with
-#        the disk untouched;
+#        the network cut, must REFUSE in the offline pre-flight, naming
+#        the missing store paths ("Connect to the network ..."). This
+#        scripted check runs before any partitioning, so the disk stays
+#        untouched; in the GUI the same refusal comes later, after the
+#        partition job (see the README);
 #    2b. the canonical config, with the network cut, installs offline
 #        from the shipped store (pre-copy + substitute=false), exactly
 #        as the patched Calamares would;
@@ -219,6 +221,13 @@ wait_ga() {
 
 start_vm() {
   # start_vm <boot> : boot = d (ISO) or c (disk)
+  # `-vga none`: q35 otherwise adds a std VGA (PCI 1234:1111) beside
+  # virtio-gpu, so the guest sees two GPUs. The greeter's cage runs
+  # with `-m last` and lights only one output, while QMP screendump
+  # reads console 0 (the VGA): every greeter dump was QEMU's 640x480
+  # "Guest has not initialized the display" placeholder, and the 4b
+  # readiness poll never saw a frame. aarch64 virt adds no VGA, which
+  # is why local HVF runs never showed it.
   local boot="$1"
   rm -f "$QMP" "$GASOCK"
   local extra=()
@@ -230,7 +239,7 @@ start_vm() {
     -drive if=pflash,format=raw,file="$VARS" \
     -drive file="$DISK",if=virtio,format=qcow2 \
     ${extra[@]} \
-    -device virtio-gpu-pci -display none \
+    -vga none -device virtio-gpu-pci -display none \
     -device qemu-xhci -device usb-tablet -device usb-kbd \
     -serial file:"$WORKDIR/serial-$boot.log" \
     -netdev user,id=net0,hostfwd=tcp::10022-:22 \
@@ -462,7 +471,7 @@ assert tweak_missing, 'tweak pre-flight should refuse, but nothing is missing'
 shown = ', '.join(sorted(tweak_missing)[:8])
 if len(tweak_missing) > 8:
     shown += ' (and {} more)'.format(len(tweak_missing) - 8)
-msg = 'OFFLINE-CLOSURE-INCOMPLETE: this hardware needs {} store paths that are not on the ISO ({}). Connect to the network and install again, or install on hardware matching the ISO.'.format(len(tweak_missing), shown)
+msg = 'OFFLINE-CLOSURE-INCOMPLETE: this system needs {} store paths that are not on the ISO ({}). Connect to the network and run the installer again.'.format(len(tweak_missing), shown)
 print(msg)
 assert 'connect to the network' in msg.lower(), 'message must name the remedy'
 print('TWEAK-OFFLINE-REFUSAL-OK')
@@ -566,7 +575,8 @@ mode=\$(cat /tmp/scoot-netmode.txt)
 echo SCOOT-NETMODE:\$mode
 [ \"\$mode\" = offline ] || { echo NETMODE-FAIL: expected offline with the network cut >&2; exit 1; }
 echo '--- offline eval gate: the generated flake must resolve with no network and no substituters ---'
-nix eval --offline --option substitute false --no-write-lock-file '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel.drvPath' && echo EVAL-OFFLINE-OK
+nix eval --offline --option substitute false --no-write-lock-file '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel.drvPath' || { echo EVAL-OFFLINE-FAIL >&2; exit 1; }
+echo EVAL-OFFLINE-OK
 echo '--- pre-flight: the target closure must already ride the ISO ---'
 topo=\$(nix eval --offline --option substitute false --no-write-lock-file --raw '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel') && echo \"TOPLEVEL: \$topo\"
 closure=\$(nix path-info -r --offline \"\$topo\") || { echo CLOSURE-PREFLIGHT-FAIL: target not on the ISO >&2; exit 1; }
@@ -574,11 +584,15 @@ missing=\$(for p in \$closure; do [ -e \"\$p\" ] || echo \"\$p\"; done)
 [ -z \"\$missing\" ] || { echo \"OFFLINE-CLOSURE-INCOMPLETE: \$missing\" >&2; exit 1; }
 echo CLOSURE-PREFLIGHT-OK
 echo '--- archive: the build fetches flake inputs into the build store, which starts empty ---'
-nix flake archive --to /mnt --offline --no-check-sigs '/mnt/home/'$TEST_USER'/nixos-config' && echo ARCHIVE-OK
+nix flake archive --to /mnt --offline --no-check-sigs '/mnt/home/'$TEST_USER'/nixos-config' || { echo ARCHIVE-FAIL >&2; exit 1; }
+echo ARCHIVE-OK
 echo '--- pre-copy: the target closure rides the ISO; copy it into the empty target store ---'
-nix copy --to /mnt --no-check-sigs \"\$topo\" && echo PRECOPY-OK
-unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --no-channel-copy --option build-dir /nix/var/nix/builds --option substitute false' > /tmp/install.log 2>&1
-rc=\$?
+nix copy --to /mnt --no-check-sigs \"\$topo\" || { echo PRECOPY-FAIL >&2; exit 1; }
+echo PRECOPY-OK
+# rc captured, not left to set -e: a failed install must still print
+# its marker and log tail below before the block exits non-zero.
+rc=0
+unshare -n /bin/sh -c 'ip link set lo up; nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --no-channel-copy --option build-dir /nix/var/nix/builds --option substitute false' > /tmp/install.log 2>&1 || rc=\$?
 echo INSTALL-RC:\$rc
 tail -40 /tmp/install.log
 ls -la /mnt/home/$TEST_USER/nixos-config/ /mnt/etc/nixos
@@ -693,9 +707,10 @@ echo "=== phase 3b: the installed flake is normal and maintainable ==="
 # lock with no path: overrides, then rebuild offline two ways
 # (nixos-rebuild and nh, network namespace emptied).
 guest_exec '
+fail=0
 echo "--- flake home ---"
 ls -lad /etc/nixos /home/'$TEST_USER'/nixos-config
-test -L /etc/nixos && echo SYMLINK-OK
+test -L /etc/nixos && echo SYMLINK-OK || { echo SYMLINK-FAIL; fail=1; }
 stat -c "%U %G %a %n" /home/'$TEST_USER'/nixos-config /home/'$TEST_USER'/nixos-config/flake.nix
 echo "--- git repo (as the owner: root reads hit libgit2 ownership) ---"
 sudo -u '$TEST_USER' git -C /home/'$TEST_USER'/nixos-config log --oneline
@@ -705,20 +720,28 @@ cat /home/'$TEST_USER'/nixos-config/flake.nix
 echo "--- lock inputs (no python3 on the target: grep) ---"
 grep -o "\"type\": \"[a-z]*\"" /home/'$TEST_USER'/nixos-config/flake.lock | sort | uniq -c
 grep -o "\"rev\": \"[a-f0-9]*\"" /home/'$TEST_USER'/nixos-config/flake.lock
-! grep -q "path:/nix/store" /home/'$TEST_USER'/nixos-config/flake.lock && echo LOCK-OK
+if grep -q "path:/nix/store" /home/'$TEST_USER'/nixos-config/flake.lock; then echo LOCK-FAIL; fail=1; else echo LOCK-OK; fi
+exit $fail
 '
 echo "=== phase 3c: prove the REAL logged-in session (hard) ==="
 # No headless stand-in: these run against the session the ReGreet login
-# above started, as the installed user. Any failure exits the test.
+# above started, as the installed user. Every check is a hard gate:
+# each prints <NAME>-OK or <NAME>-FAIL and a failure sets fail=1, so the
+# block runs every check (the log shows all of them) and then exits
+# non-zero, which fails the test. (Not `set -e` with `cmd && echo OK`:
+# set -e exempts AND-lists, so that form could never fail.)
 guest_exec '
-set -e
 export XDG_RUNTIME_DIR=/run/user/1000
 export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock
-test -S "$SCOOT_SOCKET" && echo SOCKET-OK
+fail=0
+test -S "$SCOOT_SOCKET" && echo SOCKET-OK || { echo SOCKET-FAIL; fail=1; }
 echo "--- compositor IPC from inside the session ---"
-su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg version" && echo MSG-VERSION-OK
-su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg outputs" | tee /tmp/outputs.txt && echo MSG-OUTPUTS-OK
-su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows" && echo MSG-WINDOWS-OK
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg version" && echo MSG-VERSION-OK || { echo MSG-VERSION-FAIL; fail=1; }
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg outputs" > /tmp/outputs.txt && cat /tmp/outputs.txt && echo MSG-OUTPUTS-OK || { echo MSG-OUTPUTS-FAIL; fail=1; }
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows" && echo MSG-WINDOWS-OK || { echo MSG-WINDOWS-FAIL; fail=1; }
+echo "--- home-manager activation (a failed unit means no user config: black wallpaper) ---"
+systemctl is-active home-manager-'$TEST_USER'.service && echo HM-UNIT-OK || { echo HM-UNIT-FAIL; systemctl status home-manager-'$TEST_USER'.service --no-pager | tail -20; fail=1; }
+exit $fail
 '
 echo "--- the bar reserves space (usable vs rect) ---"
 # NOTE: no python3 on the target (like phase 3b, the guest stays
@@ -738,27 +761,33 @@ for o in outputs:
     assert usable["height"] < rect["height"], "bar reserves no space: usable == rect"
 print("BAR-SPACE-OK")
 EOF
+# Same hard-gate pattern as above. Exactly one bar daemon is a count,
+# not presence: two daemons (the home unit shadow fiso2 found) would
+# still satisfy a bare pgrep.
 guest_exec '
-set -e
 export XDG_RUNTIME_DIR=/run/user/1000
 export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock
+fail=0
 echo "--- the installed bar wears the look layout, not the clock-only default ---"
-grep -q "workspaces" /etc/scootbar/bar.toml && grep -q "window-title" /etc/scootbar/bar.toml && grep -q "^\[clock\]" /etc/scootbar/bar.toml && echo BAR-CONTENT-OK
-! grep -q "welcome" /etc/scootbar/bar.toml && echo BAR-NO-WELCOME-OK
+grep -q "workspaces" /etc/scootbar/bar.toml && grep -q "window-title" /etc/scootbar/bar.toml && grep -q "^\[clock\]" /etc/scootbar/bar.toml && echo BAR-CONTENT-OK || { echo BAR-CONTENT-FAIL; fail=1; }
+if grep -q "welcome" /etc/scootbar/bar.toml; then echo BAR-NO-WELCOME-FAIL; fail=1; else echo BAR-NO-WELCOME-OK; fi
 echo "--- the bar face carries the Nerd glyphs (no tofu) ---"
-fc-list | grep -qi "DroidSansM Nerd Font Propo" && echo BAR-FONT-FAMILY-OK
+fc-list | grep -qi "DroidSansM Nerd Font Propo" && echo BAR-FONT-FAMILY-OK || { echo BAR-FONT-FAMILY-FAIL; fail=1; }
 barfont=$(grep "^font = " /etc/scootbar/bar.toml | cut -d\" -f2)
-test -f "$barfont" && echo BAR-FONT-FILE-OK
-fc-list | grep -qi "FiraCode Nerd Font" && echo FOOT-FONT-FAMILY-OK
+test -n "$barfont" && test -f "$barfont" && echo BAR-FONT-FILE-OK || { echo "BAR-FONT-FILE-FAIL: [$barfont]"; fail=1; }
+fc-list | grep -qi "FiraCode Nerd Font" && echo FOOT-FONT-FAMILY-OK || { echo FOOT-FONT-FAMILY-FAIL; fail=1; }
 echo "--- bar + wallpaper resident ---"
-pgrep -u 1000 -x scootbar && echo BAR-PROC-OK
-su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=/run/user/1000 systemctl --user is-active scootbar" && echo BAR-UNIT-OK
+pgrep -a -u 1000 -x scootbar || true
+bars=$(pgrep -c -u 1000 -x scootbar || true)
+[ "$bars" = 1 ] && echo BAR-PROC-OK || { echo "BAR-PROC-FAIL: $bars scootbar daemons (want exactly 1)"; fail=1; }
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=/run/user/1000 systemctl --user is-active scootbar" && echo BAR-UNIT-OK || { echo BAR-UNIT-FAIL; fail=1; }
 # Full-command match (the daemon comm is the .scootbg-wrapped binary,
 # not "scootbg"): the bracket dodges pgrep matching our own sh -c line.
-pgrep -u 1000 -f '[s]cootbg-wrapped' && echo BG-PROC-OK
-echo "--- the compositor'"'"'s own screenshot path ---"
-su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET timeout 120 scoot msg screenshot --out /tmp/installed-scoot.png" && echo SCREENSHOT-OK
-echo MSG-OK
+pgrep -u 1000 -f "[s]cootbg-wrapped" && echo BG-PROC-OK || { echo BG-PROC-FAIL; fail=1; }
+echo "--- the compositor own screenshot path ---"
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET timeout 120 scoot msg screenshot --out /tmp/installed-scoot.png" && echo SCREENSHOT-OK || { echo SCREENSHOT-FAIL; fail=1; }
+[ "$fail" = 0 ] && echo MSG-OK
+exit $fail
 '
 # Pull the IPC screenshot back to the host for the artifacts, in SMALL
 # pieces: only small guest->host payloads are proven on this channel,
@@ -880,11 +909,11 @@ nix-store --query --requisites --include-outputs \"\$tweak_drv\" 2>/dev/null | g
 while read -r p; do [ -e \"\$p\" ] && echo \"\$p\" >> /tmp/tweak-have.txt; done < /tmp/tweak-wanted.txt
 wc -l /tmp/tweak-wanted.txt /tmp/tweak-have.txt
 xargs -a /tmp/tweak-have.txt nix copy --to /mnt --no-check-sigs && echo TWEAK-PRECOPY-OK || echo TWEAK-PRECOPY-SKIP
-nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --no-channel-copy --option build-dir /nix/var/nix/builds > /tmp/install-tweak.log 2>&1
-rc=\$?
+rc=0
+nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --no-channel-copy --option build-dir /nix/var/nix/builds > /tmp/install-tweak.log 2>&1 || rc=\$?
 echo TWEAK-INSTALL-RC:\$rc
 tail -20 /tmp/install-tweak.log
-[ -e \"/mnt\$tweak_topo\" ] && echo TWEAK-FROM-NETWORK-OK
+if [ -e \"/mnt\$tweak_topo\" ]; then echo TWEAK-FROM-NETWORK-OK; else echo TWEAK-FROM-NETWORK-FAIL; [ \"\$rc\" != 0 ] || rc=1; fi
 exit \$rc
 "
 guest_exec 'chown -R 1000:100 /mnt/home/'$TEST_USER' && echo TWEAK-CHOWN-OK'
@@ -895,11 +924,12 @@ stop_vm
 echo "=== phase 4b: the tweak install boots and logs in ==="
 start_vm c
 wait_ga
-# KVM can lag cage: the greeter procs are up long before the first
-# frame hits the framebuffer (CI's screendumps caught blank displays
-# while GREETER-OK passed). Poll the frame itself for content before
-# clicking: a uniform frame is not ready, a varied one is. Never fail
-# here — the login attempts below stay the hard gate.
+# Poll the frame itself for greeter content before clicking: a uniform
+# frame is not ready, a varied one is. Capped at 90 s and never fatal:
+# the login attempts below stay the hard gate. (Before `-vga none` in
+# start_vm this never saw READY on KVM: the dump read the dark std-VGA
+# console while cage lit virtio-gpu, so the old 4-minute cap was always
+# spent in full.)
 qmp_ready() { # $1 = ppm path; echoes READY or NOT-READY
   python3 - "$1" <<'EOF'
 import sys
@@ -916,7 +946,7 @@ except Exception:
 EOF
 }
 ready=0
-for _ in $(seq 1 24); do
+for _ in $(seq 1 9); do
   qmp screendump "{\"filename\": \"$WORKDIR/tweak-session.ppm\"}" >/dev/null 2>&1 || true
   if [ "$(qmp_ready "$WORKDIR/tweak-session.ppm")" = READY ]; then ready=1; break; fi
   sleep 10

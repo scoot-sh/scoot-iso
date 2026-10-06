@@ -145,6 +145,16 @@ check("could not be evaluated from the ISO" in patch, "patch script lost the eva
 check('startswith("/nix/store/")' in patch, "patch script lost the store-path-only closure parse (warnings must not pollute it)")
 check("scoot install needs the network" in patch, "patch script lost the offline-refusal title")
 check("Connect to the network" in patch, "patch script lost the connect-to-the-network message")
+# The graphical install needs the network (welcome.conf requires
+# internet, asserted by the patch), and a GUI install never matches the
+# shipped canonical closure. The refusal therefore says what already
+# ran and sends the user back to the start; "install on hardware
+# matching the ISO" was never achievable from the GUI.
+check("run the installer again" in patch, "patch refusal lost the run-the-installer-again remedy")
+check("partitions are already formatted" in patch, "patch refusal must say what already ran (partitions formatted, config written)")
+check("welcome_required" in patch and "no longer requires internet" in patch, "patch lost the welcome.conf internet-requirement assertion")
+for _name, _text in (("patch", patch), ("qemu-test", qemu)):
+    check("hardware matching the ISO" not in _text, f"{_name} still offers the unreachable 'hardware matching the ISO' remedy")
 # The scoot branch writes its own greeter files (ReGreet, never
 # autologin): a ticked autologin box must warn, not vanish silently.
 check('gs.value("autoLoginUser")' in patch, "patch script lost the autologin read")
@@ -190,6 +200,11 @@ check("nh os switch" in location, "location page lost the rebuild instruction")
 check("dontChroot: true" in netprobe, "netprobe conf must run on the host (dontChroot)")
 check("exit 0" in netprobe, "netprobe conf must always exit 0 (verdict is data, never a job failure)")
 check("/tmp/scoot-netmode" in netprobe, "netprobe conf lost the /tmp/scoot-netmode handoff")
+# A stale "online" from an earlier run in the same boot must never be
+# trusted, and a hanging resolver must not push the step past
+# Calamares' 30 s shellprocess limit (a timeout is a job error).
+check("rm -f /tmp/scoot-netmode" in netprobe, "netprobe conf must drop a stale verdict before probing")
+check("timeout 20 python3" in netprobe and "timeout: 30" in netprobe, "netprobe conf must cap the probe at 20 s inside the 30 s step limit")
 check("https://cache.nixos.org/nix-cache-info" in netprobe, "netprobe conf lost the cache.nixos.org probe")
 check("https://scoot-sh.cachix.org/nix-cache-info" in netprobe, "netprobe conf lost the scoot Cachix probe")
 check("netprobe_file" in patch and "out_netprobe" in patch, "patch script lost the netprobe in/out args")
@@ -416,6 +431,20 @@ check("BAR-NO-WELCOME-OK" in qemu, "qemu-test lost the no-live-Welcome-button pr
 check("BAR-FONT-FAMILY-OK" in qemu, "qemu-test lost the bar font-family proof (fc-list)")
 check("BAR-FONT-FILE-OK" in qemu, "qemu-test lost the bar font-file proof")
 check("FOOT-FONT-FAMILY-OK" in qemu, "qemu-test lost the foot font-family proof (fc-list)")
+# Phase 3b/3c checks are hard gates: each has a FAIL branch that sets
+# fail=1, and the blocks exit $fail. (`set -e` with `cmd && echo OK`
+# could never fail: set -e exempts AND-lists.)
+for _marker in ("SOCKET", "MSG-VERSION", "MSG-OUTPUTS", "MSG-WINDOWS", "HM-UNIT", "BAR-CONTENT", "BAR-NO-WELCOME",
+                "BAR-FONT-FAMILY", "BAR-FONT-FILE", "FOOT-FONT-FAMILY", "BAR-PROC", "BAR-UNIT", "BG-PROC", "SCREENSHOT",
+                "SYMLINK", "LOCK", "TWEAK-FROM-NETWORK"):
+    check(f"{_marker}-FAIL" in qemu, f"qemu-test {_marker} check has no FAIL branch (print-only gates can never fail)")
+check(qemu.count("exit $fail") >= 3, "qemu-test 3b/3c blocks must exit $fail")
+check("pgrep -c -u 1000 -x scootbar" in qemu, "qemu-test must COUNT bar daemons (exactly one), not just find one")
+check("is-active home-manager-" in qemu, "qemu-test lost the home-manager activation gate")
+check("|| rc=\\$?" in qemu, "qemu-test install blocks must capture rc (set -e would drop the log tail)")
+# One GPU: q35 adds a std VGA beside virtio-gpu otherwise, and the
+# greeter (cage -m last) lights the output screendump does not read.
+check("-vga none -device virtio-gpu-pci" in qemu, "qemu-test lost -vga none (the screendump reads a dark std-VGA console)")
 
 # Docker one-command build: image pinned by digest (never :latest),
 # check mode for fast plumbing validation, caller-owned output. The
@@ -429,6 +458,9 @@ check("--check" in docker, "docker script lost check mode")
 check("CALLER_UID" in docker, "docker script lost the caller-ownership handoff")
 check("linux/amd64" in docker and "linux/arm64" in docker, "docker script lost the effective-platform digest map")
 check("NATIVE_DIGEST" in docker, "docker script lost the native-arch digest fallback")
+# Emulated (foreign-platform) builds cannot load Nix's seccomp filter
+# (Rosetta: "unable to load seccomp BPF program"); native keeps it.
+check("--option filter-syscalls false" in docker and "FOREIGN" in docker, "docker script lost filter-syscalls off for emulated builds")
 
 # CI: qemu-test waits for the KVM probe (a KVM-less runner must not
 # pay the 30-minute ISO build before failing), and release ships the
