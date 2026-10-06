@@ -558,8 +558,13 @@ echo "--- compositor IPC from inside the session ---"
 su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg version" && echo MSG-VERSION-OK
 su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg outputs" | tee /tmp/outputs.txt && echo MSG-OUTPUTS-OK
 su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows" && echo MSG-WINDOWS-OK
+'
 echo "--- the bar reserves space (usable vs rect) ---"
-python3 - /tmp/outputs.txt <<'"'"'PYEOF'"'"'
+# NOTE: no python3 on the target (like phase 3b, the guest stays
+# grep-grade): the outputs JSON is validated on the HOST, where
+# python3 is guaranteed. tail drops the helper's "rc:" status line.
+guest_exec 'cat /tmp/outputs.txt' | tail -n +2 > "$WORKDIR/outputs.json"
+python3 - "$WORKDIR/outputs.json" <<'EOF'
 import json, sys
 data = json.load(open(sys.argv[1]))
 # The reply is the internally-tagged Response envelope
@@ -571,7 +576,11 @@ for o in outputs:
     print("output:", o.get("name"), "rect:", rect, "usable:", usable)
     assert usable["height"] < rect["height"], "bar reserves no space: usable == rect"
 print("BAR-SPACE-OK")
-PYEOF
+EOF
+guest_exec '
+set -e
+export XDG_RUNTIME_DIR=/run/user/1000
+export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock
 echo "--- bar + wallpaper resident ---"
 pgrep -u 1000 -x scootbar && echo BAR-PROC-OK
 su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=/run/user/1000 systemctl --user is-active scootbar" && echo BAR-UNIT-OK
