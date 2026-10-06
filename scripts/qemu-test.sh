@@ -514,18 +514,18 @@ echo "=== phase 3c: scoot msg checks via guest agent ==="
 # wallpaper daemon are checked first: the profile starts scootbar
 # through graphical-session.target and scootbg for the look's shipped
 # wallpaper, so both must be resident in a logged-in session.
-guest_exec "
-uid=\$(id -u $TEST_USER)
-export XDG_RUNTIME_DIR=/run/user/\$uid
-mkdir -p \$XDG_RUNTIME_DIR
-chown $TEST_USER:users \$XDG_RUNTIME_DIR
-chmod 700 \$XDG_RUNTIME_DIR
+guest_exec '
+uid=$(id -u '$TEST_USER')
+export XDG_RUNTIME_DIR=/run/user/$uid
+mkdir -p $XDG_RUNTIME_DIR
+chown '$TEST_USER':users $XDG_RUNTIME_DIR
+chmod 700 $XDG_RUNTIME_DIR
 pgrep -ax scoot || true
-echo '--- bar + wallpaper ---'
+echo "--- bar + wallpaper ---"
 pgrep -af scootbar | head -3 || echo NO-SCOOTBAR-PROC
 pgrep -af scootbg | head -3 || echo NO-SCOOTBG-PROC
-su -s /bin/sh $TEST_USER -c 'XDG_RUNTIME_DIR=/run/user/\$(id -u) systemctl --user is-active scootbar' || echo BAR-UNIT-NOT-ACTIVE
-cat > /tmp/scoot-check.sh <<'CHEOF'
+su -s /bin/sh '$TEST_USER' -c "XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-active scootbar" || echo BAR-UNIT-NOT-ACTIVE
+cat > /tmp/scoot-check.sh <<'"'"'CHEOF'"'"'
 export XDG_RUNTIME_DIR=__RUNTIME__
 export WAYLAND_DISPLAY=scoot-test-0
 scoot --headless --outputs 1 -- foot &
@@ -535,11 +535,11 @@ scoot msg outputs
 scoot msg windows
 scoot msg screenshot --out /tmp/installed-scoot.png && echo SCREENSHOT-OK
 CHEOF
-sed -i "s|__RUNTIME__|\$XDG_RUNTIME_DIR|" /tmp/scoot-check.sh
-chown $TEST_USER:users /tmp/scoot-check.sh
-su -s /bin/sh $TEST_USER -c '/bin/sh /tmp/scoot-check.sh'
+sed -i "s|__RUNTIME__|$XDG_RUNTIME_DIR|" /tmp/scoot-check.sh
+chown '$TEST_USER':users /tmp/scoot-check.sh
+su -s /bin/sh '$TEST_USER' -c "/bin/sh /tmp/scoot-check.sh"
 echo MSG-OK
-"
+'
 # Pull the IPC screenshot back to the host for the artifacts, in small
 # pieces: only small guest->host payloads are proven, so the
 # reassembled PNG is validated, and the test carries on with the QMP
