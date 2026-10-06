@@ -185,6 +185,12 @@ in
 
   services.qemuGuest.enable = true;
 
+  # The dconf service home-manager's dconf activation needs (the
+  # look's dark-mode signal): without it the home-manager unit fails
+  # with no session bus, the user config never links, and `nh os
+  # switch` fails. Mirrors the template exactly (drvPath gate holds).
+  programs.dconf.enable = true;
+
   programs.nh = {
     enable = true;
     flake = "/home/scoot/nixos-config";

@@ -232,6 +232,12 @@ for _side, _text in (("target configuration.nix", config), ("mirror", mirror)):
     check("fonts.packages" in _text, f"{_side} lost fonts.packages (foot/greeter resolve through fontconfig)")
     check("DejaVuSans.ttf" not in _text, f"{_side} still names a DejaVu bar face (tofu)")
 check("DejaVuSans.ttf" not in live, "live session still hand-sets a DejaVu bar face (the profile themes the Propo)")
+# The look's dark-mode signal rides home-manager's dconf module, which
+# needs the system's dconf service: without it the home-manager unit
+# fails with no session bus (boot and `nh os switch` alike), the user
+# config never links (no wallpaper), and the switch fails.
+for _side, _text in (("target configuration.nix", config), ("mirror", mirror)):
+    check("programs.dconf.enable = true" in _text, f"{_side} lost programs.dconf.enable (home-manager dconf activation fails)")
 check("scootBarLayouts" in config, "template lost the shared bar-layout binding")
 check("scootBarLayouts" in patch, "patch HM stanza lost the shared bar-layout read")
 check("systemd.enable = false" in patch, "patch HM stanza lost the home-unit off switch")

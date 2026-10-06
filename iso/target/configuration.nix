@@ -377,6 +377,17 @@ in
   # the guest-exec channel the QEMU test drives `scoot msg` through).
   services.qemuGuest.enable = true;
 
+  # dconf, for the desktop profile's dark-mode signal: the look writes
+  # `org.gnome.desktop.interface color-scheme` through home-manager's
+  # dconf module, and home-manager requires `programs.dconf.enable`
+  # on NixOS (its dconf activation runs `dconf load`, which needs the
+  # `ca.desrt.dconf` service this provides). Without it the
+  # home-manager unit fails at boot AND at `nh os switch` (no session
+  # bus in either place), the activation aborts mid-way, the user's
+  # scoot config (wallpaper included) never links, and the switch
+  # fails. Proven in QEMU: failed before, active after.
+  programs.dconf.enable = true;
+
   # The scoot desktop profile with the chosen look, the session entry and
   # the ReGreet greeter (programs.scoot.greeter: greetd running ReGreet
   # under cage; never autologin on an installed system). The look line
