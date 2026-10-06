@@ -176,6 +176,7 @@ check("[ -n \"$TARGET_HARDWARE\" ]" in qemu, "qemu-test lost the --target-hardwa
 check("nixos-generate-config --root" not in qemu, "qemu-test must not run nixos-generate-config (non-deterministic hardware breaks the closure match)")
 check("hardware-configuration.nix', 'w').write(hardware)" in qemu, "qemu-test lost the static-hardware write")
 check("HW_CONTENT=$(cat \"$TARGET_HARDWARE\")" in qemu, "qemu-test lost the host-side hardware read")
+check("mkdir -p /mnt/boot" in qemu, "qemu-test lost the /mnt/boot mkdir (the ESP mount needs it)")
 check("nix copy --to /mnt" in qemu, "qemu-test lost the closure pre-copy")
 check("--no-channel-copy" in qemu, "qemu-test lost --no-channel-copy")
 check('QEMU_BIN="${QEMU_BIN:-qemu-system-x86_64}"' in qemu, "qemu-test lost the QEMU_BIN override (aarch64 runs)")
