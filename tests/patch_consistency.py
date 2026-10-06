@@ -7,7 +7,7 @@ installer."""
 import re
 import sys
 
-flake_path, config_path, lock_path, hw_path, mirror_path, live_path, patch_path, item_path, location_path, qemu_path, docker_path, repo_path = sys.argv[1:]
+flake_path, config_path, lock_path, hw_path, mirror_path, live_path, patch_path, item_path, location_path, netprobe_path, qemu_path, docker_path, ci_path, repo_path = sys.argv[1:]
 
 failures = []
 
@@ -26,11 +26,13 @@ live = open(live_path).read()
 patch = open(patch_path).read()
 item = open(item_path).read()
 location = open(location_path).read()
+netprobe = open(netprobe_path).read()
 qemu = open(qemu_path).read()
 docker = open(docker_path).read()
+ci = open(ci_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
-SCOOT_REV = "4ad6388814bd175330cea32830756a2393545ae8"
+SCOOT_REV = "d7de6eafa630685bbe385db7ad8d9c93de124a1b"
 HM_REV = "f53f3267f5d009dd8f99443505e609389d7ff267"
 CACHIX_URL = "https://scoot-sh.cachix.org"
 CACHIX_KEY = "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
@@ -72,7 +74,7 @@ check("inputs.home-manager.nixosModules.home-manager" in config, "target configu
 check("desktop.enable = true" in config, "target configuration.nix lost desktop.enable")
 check("session.enable = true" in config, "target configuration.nix lost session.enable")
 check("greeter.enable = true" in config, "target configuration.nix lost greeter.enable")
-check("programs.scootbar.enable = true" in config, "target configuration.nix lost scootbar.enable")
+check("programs.scootbar" in config and "enable = true" in config, "target configuration.nix lost scootbar.enable")
 check("programs.nh" in config and "enable = true" in config, "target configuration.nix lost nh.enable")
 check('@@SCOOT_NH_FLAKE@@' in config, "target configuration.nix lost its @@SCOOT_NH_FLAKE@@ marker")
 check('"git"' in config or " git\n" in config, "target configuration.nix lost git for the nixos-config repo")
@@ -126,6 +128,27 @@ check("--flake" in patch, "patch script lost the flake install command")
 check('"--override-input"' not in patch, "patch script must not carry --override-input (inputs ship in the ISO instead)")
 check('"--no-write-lock-file"' in patch, "patch script lost --no-write-lock-file (the installed lock must stay github-pinned)")
 check('"--no-channel-copy"' in patch, "patch script lost --no-channel-copy (the channel cannot copy offline; a flake system needs none)")
+# Network modes: online installs use the normal substituters (no
+# substitute=false); only offline installs pin the shipped store.
+check("scoot_netmode" in patch, "patch script lost the network-mode decision")
+check("/tmp/scoot-netmode" in patch, "patch script lost the pre-partition probe handoff read")
+check("urlopen" in patch and "nix-cache-info" in patch, "patch script lost the live substituter probe fallback")
+check("scoot install network mode" in patch, "patch script lost the mode log line")
+check('"--option", "substitute", "false"' in patch, "patch script lost substitute=false for the offline install")
+check("nixosInstallCmd.extend" in patch, "patch script lost the install-command extension")
+# Offline pre-flight: eval the target toplevel, check its closure
+# against the live store, and fail with the missing-path list before
+# nixos-install writes anything.
+check('"nix", "path-info", "-r", "--offline"' in patch, "patch script lost the pre-flight closure check")
+check('"nix", "derivation", "show"' in patch, "patch script lost the missing-path enrichment (dry-run outputs)")
+check("could not be evaluated from the ISO" in patch, "patch script lost the eval-failure refusal")
+check('startswith("/nix/store/")' in patch, "patch script lost the store-path-only closure parse (warnings must not pollute it)")
+check("scoot install needs the network" in patch, "patch script lost the offline-refusal title")
+check("Connect to the network" in patch, "patch script lost the connect-to-the-network message")
+# The scoot branch writes its own greeter files (ReGreet, never
+# autologin): a ticked autologin box must warn, not vanish silently.
+check('gs.value("autoLoginUser")' in patch, "patch script lost the autologin read")
+check("ignores the automatic-login choice" in patch, "patch script lost the autologin-ignored warning")
 check('"nix", "flake", "archive", "--to"' in patch, "patch script lost the flake archive (the build fetches inputs into the empty target store)")
 check('"nix", "copy", "--to"' in patch, "patch script lost the closure pre-copy (building into the target store does not consult the live store)")
 check('"--no-check-sigs"' in patch, "patch script lost --no-check-sigs (ISO paths carry no signatures into the fresh target store)")
@@ -160,6 +183,47 @@ for _loc in ("home", "system"):
 check("mode: required" in location, "location page lost mode: required")
 check("method: legacy" in location, "location page lost method: legacy")
 check("nh os switch" in location, "location page lost the rebuild instruction")
+
+# Pre-partition network probe: a shellprocess instance that records
+# online/offline in /tmp/scoot-netmode before partition runs, and can
+# never fail the job (the verdict is data).
+check("dontChroot: true" in netprobe, "netprobe conf must run on the host (dontChroot)")
+check("exit 0" in netprobe, "netprobe conf must always exit 0 (verdict is data, never a job failure)")
+check("/tmp/scoot-netmode" in netprobe, "netprobe conf lost the /tmp/scoot-netmode handoff")
+check("https://cache.nixos.org/nix-cache-info" in netprobe, "netprobe conf lost the cache.nixos.org probe")
+check("https://scoot-sh.cachix.org/nix-cache-info" in netprobe, "netprobe conf lost the scoot Cachix probe")
+check("netprobe_file" in patch and "out_netprobe" in patch, "patch script lost the netprobe in/out args")
+check("scoot-netprobe.conf" in patch, "patch script lost the netprobe config file")
+check("shellprocess@scoot-netprobe" in patch, "patch script lost the pre-partition probe sequence entry")
+check("module:   shellprocess" in patch, "patch script lost the shellprocess instance entry")
+
+# Installed bar: each look's own example layout (not just colors),
+# in the template for every look and mirrored for the canonical one.
+# The live-only Welcome button stays on the live session.
+for _look in ("moonrise", "music-desk", "radial-burst", "vinyl-sunset"):
+    check(f"{_look} = {{" in config, f"template lost the {_look} bar layout")
+for _color in ("#2B3648", "#FCFBFB", "#fdef1d", "#271A1F"):
+    check(_color in config, f"template lost the example bar color {_color}")
+check("window-title" in config, "template lost the window-title bar module")
+check("button.terminal" in config and "button.browser" in config, "template lost the launcher buttons")
+check("exec.load" in config and "exec.cpu" in config, "template lost the load/cpu exec modules")
+check("load.sh" in config and "cpu.sh" in config, "template lost the exec helper scripts")
+check("brightness" in config and "bluetooth" in config, "template lost the radial-burst-only modules")
+check("button.welcome" not in config, "template must not carry the live-only Welcome button")
+check("button.welcome" in live, "live session lost the Welcome button")
+check("window-title" in mirror, "mirror lost the window-title bar module")
+check("exec.load" in mirror and "load.sh" in mirror, "mirror lost the exec modules")
+check("button.welcome" not in mirror, "mirror must not carry the live-only Welcome button")
+# One layout, whichever unit wins: the home unit's empty config used
+# to shadow the system unit (same unit name, home wins), leaving the
+# installed desktop on the bar binary's clock-only default. Both
+# halves now draw the same layout, and the home unit stays off so
+# exactly one daemon runs.
+check("scootBarLayouts" in config, "template lost the shared bar-layout binding")
+check("scootBarLayouts" in patch, "patch HM stanza lost the shared bar-layout read")
+check("systemd.enable = false" in patch, "patch HM stanza lost the home-unit off switch")
+check("moonriseBar" in mirror, "mirror lost the shared moonrise bar binding")
+check("systemd.enable = false" in mirror, "mirror lost the home-unit off switch")
 
 # Mirror identity must equal the test's canonical render identity.
 check('networking.hostName = "scoot"' in mirror, "mirror lost hostname scoot (test renders scoot)")
@@ -200,6 +264,18 @@ check(_welcome_srcs, "welcome page has no local <img src> to pin (the hero must 
 for _src in _welcome_srcs:
     _beside = _os.path.isfile(_os.path.join(_repo_root, "iso/welcome", _src))
     check(_beside or _src in live, f"welcome <img src={_src}> resolves neither beside the page nor in the live derivation")
+_welcome_fonts = [u for u in _re.findall(r'url\(["\']?([^"\')]+)["\']?\)', _welcome_page) if "://" not in u and not u.startswith("data:")]
+check(_welcome_fonts, "welcome page has no local font url() to pin (the display face must be self-hosted)")
+for _src in _welcome_fonts:
+    _beside = _os.path.isfile(_os.path.join(_repo_root, "iso/welcome", _src))
+    check(_beside or _src in live, f"welcome url({_src}) resolves neither beside the page nor in the live derivation")
+# scoot.sh brand tokens: true black ground, white type, the ginger
+# accent, League Spartan display type, no card shadows or gradients.
+for _token in ("#000000", "#FFFFFF", "#CB6F34", "League Spartan"):
+    check(_token in _welcome_page, f"welcome page lost the brand token {_token}")
+check("hero-cat-960.jpg" in _welcome_page, "welcome page lost the cat hero art")
+check("box-shadow" not in _welcome_page and "linear-gradient" not in _welcome_page,
+      "welcome page uses shadows or gradients (the brand is flat)")
 
 # Live session seeds the welcome browser's profile (Firefox's
 # default-profile auto-creation fails on live media: "Profile Missing").
@@ -215,10 +291,15 @@ check("chown -R nixos:users /home/nixos" in live, "live session lost the recursi
 # nothing beside the page: the hero rendered as alt text.
 check('environment.etc."scoot-welcome".source' in live, "live session lost the welcome directory derivation")
 check('"scoot-welcome/index.html".source' not in live, "live session still ships the lone-file welcome page (image 404s)")
-check("moonrise.jpg" in live, "live session lost the web-sized welcome hero")
-check("resize" in live and "quality" in live, "live session lost the hero downsize (full wallpaper PNG is not web-sized)")
-check("not shipped beside index.html" in live, "live session lost the build-time <img src> resolution check")
-check("imagemagick" in live, "live session lost the hero converter")
+# scoot.sh brand, offline: the cat hero art and the self-hosted
+# wordmark face ride beside the page (no CDN, no Google Fonts), and
+# the build-time check covers the font url() as well as <img src>.
+check("hero-cat-960.jpg" in live, "live session lost the scoot.sh cat hero art")
+check("league-spartan-latin-900.woff2" in live, "live session lost the self-hosted display font")
+check("moonrise.jpg" not in live, "live session still converts the wallpaper hero (the cat replaced it)")
+check("imagemagick" not in live, "live session still carries imagemagick (nothing converts images anymore)")
+check("not shipped beside index.html" in live, "live session lost the build-time asset resolution check")
+check("url(" in live, "live session lost the font url() resolution check")
 
 # No debug scaffolding ships: no guest password, no openssh on the
 # live image, no sshpass anywhere near the test.
@@ -266,13 +347,67 @@ check("piece per line" in qemu, "qemu-test lost the per-line piece decode (conca
 check("truncated fetch" in qemu, "qemu-test lost the exact byte-count fetch gate")
 check("PNG-FETCH-WARN" not in qemu, "qemu-test still tolerates a truncated screenshot fetch")
 
+# Network modes, installer-equivalent: the probe runs before
+# partitioning, offline installs pre-flight the closure, and the tweak
+# proves both halves (refusal offline, success online).
+check("SCOOT-NETMODE" in qemu, "qemu-test lost the network-mode probe marker")
+check("nix-cache-info" in qemu, "qemu-test lost the substituter probe")
+check("TWEAK-DIFFERS-OK" in qemu, "qemu-test lost the tweak-changes-closure guard")
+check("ISO-shipped reference" in qemu, "tweak comment must avoid single quotes (it rides a single-quoted argv word)")
+check("CLOSURE-PREFLIGHT-OK" in qemu, "qemu-test lost the canonical pre-flight pass")
+check("OFFLINE-CLOSURE-INCOMPLETE" in qemu, "qemu-test lost the offline-refusal message")
+check("connect to the network" in qemu.lower() or "Connect to the network" in qemu, "qemu-test lost the connect-to-the-network remedy")
+check("TWEAK-OFFLINE-REFUSAL-OK" in qemu, "qemu-test lost the before-partitioning refusal proof")
+check("DISK-UNTOUCHED-OK" in qemu, "qemu-test lost the disk-untouched proof")
+check("TWEAK-ONLINE-LOGIN-OK" in qemu, "qemu-test lost the network-up tweak success proof")
+check("TWEAK-FROM-NETWORK-OK" in qemu, "qemu-test lost the tweak-delta-came-over-the-network proof")
+check("QEMU_TEST_ONLINE_TWEAK" in qemu, "qemu-test lost the online-tweak skip knob")
+# Quoting discipline: guest code inside host double-quoted
+# guest_exec "..." must escape every double quote (a bare one ends
+# the host string and the guest receives mangled text). All three
+# netmode probes therefore spell their python with escaped quotes.
+check(qemu.count('mode = \\"offline\\"') == 3, "netmode probes lost their escaped quotes (bare quotes break the guest script)")
+# Both installs partition their disk (canonical and tweak): two
+# sgdisk wipes, two PARTITION markers. A dropped partition step
+# silently installs into the live tmpfs until it fills.
+check(qemu.count("sgdisk -Z /dev/vda") == 2, "qemu-test partition count wrong (canonical partition and tweak partition)")
+check("range(2700)" in qemu, "qemu-test lost the 90-minute guest-exec ceiling (HVF installs outlast 30 minutes)")
+check("echo PARTITION-OK" in qemu, "qemu-test lost the canonical PARTITION-OK")
+check("echo TWEAK-PARTITION-OK" in qemu, "qemu-test lost the tweak TWEAK-PARTITION-OK")
+check("TOOLS-UP" in qemu, "qemu-test lost the fresh-boot tool-readiness wait (partition raced activation)")
+# Phase 4 must boot the ISO, not the now-bootable installed disk: the
+# disk is unbooted first (its proofs are saved), and the ISO boot is
+# asserted before anything is touched.
+check("DISK-UNBOOTED-OK" in qemu, "qemu-test lost the verified disk zap (firmware may prefer the disk over the ISO)")
+check("UNBOOT-VERIFY-FAIL" in qemu, "qemu-test lost the zap verification (a silent no-op must fail loudly)")
+check("OVMF_VARS_4.fd" in qemu, "qemu-test lost the fresh vars file for the phase-4 ISO boot")
+check("ISO-BOOT-OK" in qemu, "qemu-test lost the ISO-boot assertion")
+# Installed bar content: the example layout, not the clock-only
+# default, minus the live-only Welcome button.
+check("BAR-CONTENT-OK" in qemu, "qemu-test lost the installed-bar content proof")
+check("/etc/scootbar/bar.toml" in qemu, "qemu-test lost the installed bar.toml read")
+check("BAR-NO-WELCOME-OK" in qemu, "qemu-test lost the no-live-Welcome-button proof")
+
 # Docker one-command build: image pinned by digest (never :latest),
-# check mode for fast plumbing validation, caller-owned output.
+# check mode for fast plumbing validation, caller-owned output. The
+# digest follows the EFFECTIVE platform (ISO_PLATFORM when set, else
+# native): an arm64 digest under --platform linux/amd64 fails with a
+# platform mismatch instead of emulating.
 check('DIGEST_AMD64="sha256:' in docker and 'DIGEST_ARM64="sha256:' in docker, "docker script lost the per-arch digest pins")
 check("nixos/nix@$DIGEST" in docker, "docker script lost the digest-pinned image ref")
 check(":latest" not in docker, "docker script must not use :latest")
 check("--check" in docker, "docker script lost check mode")
 check("CALLER_UID" in docker, "docker script lost the caller-ownership handoff")
+check("linux/amd64" in docker and "linux/arm64" in docker, "docker script lost the effective-platform digest map")
+check("NATIVE_DIGEST" in docker, "docker script lost the native-arch digest fallback")
+
+# CI: qemu-test waits for the KVM probe (a KVM-less runner must not
+# pay the 30-minute ISO build before failing), and release ships the
+# tested build-iso artifact instead of rebuilding (released bytes are
+# literally the tested bytes).
+check("[build-iso, kvm-probe]" in ci, "qemu-test must need [build-iso, kvm-probe]")
+check("needs: [build-iso, qemu-test]" in ci, "release must need [build-iso, qemu-test] (only tested bytes ship)")
+check(ci.count("nix build .#packages.x86_64-linux.iso") == 1, "only build-iso may build the ISO (release reuses its artifact)")
 
 if failures:
     print("patch-consistency FAILED:")

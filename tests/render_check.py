@@ -238,6 +238,95 @@ if failures:
     sys.exit(1)
 print("greeter-check OK")
 
+# --- bar looks check: every look renders its example layout ----
+# Re-exec the writer once per look and read back the bar settings
+# leaves (layout lists, background, height) with one nix eval each:
+# the installed bar must wear all four example layouts, minus the
+# live-only Welcome button.
+STD_RIGHT = ["load", "cpu", "network", "volume", "battery", "terminal", "browser", "power"]
+BAR_IDS = {
+    "scoot-moonrise": ("moonrise", STD_RIGHT, "#2B3648", 38),
+    "scoot-music-desk": ("music-desk", STD_RIGHT, "#FCFBFB", 40),
+    "scoot-radial-burst": ("radial-burst", ["network", "volume", "brightness", "bluetooth", "battery", "power"], "#241721", 40),
+    "scoot-vinyl-sunset": ("vinyl-sunset", STD_RIGHT, "#271A1F", 38),
+}
+for _choice, (_look, _right, _bg, _height) in BAR_IDS.items():
+    _root = f"/tmp/render-check-bar-{_look}"
+    shutil.rmtree(_root, ignore_errors=True)
+    os.makedirs(_root + "/etc/nixos", exist_ok=True)
+    open(_root + "/etc/nixos/configuration.nix", "w").write("# classic boilerplate\n")
+    open(_root + "/etc/nixos/hardware-configuration.nix", "w").write("{ }\n")
+    _vars = {"hostname": "t", "username": "u", "fullname": "U T", "timezone": "Etc/UTC",
+             "LANG": "en_US.UTF-8", "nixosversion": "25.11"}
+    _g = {"gs": FakeGS(_choice, "home"), "libcalamares": FakeCal(),
+          "root_mount_point": _root, "variables": dict(_vars),
+          "os": os, "re": re, "subprocess": FakeSubprocess}
+    warnings.clear()
+    exec(branch, _g)  # noqa: S102 (test harness for generated installer code)
+    _flakedir = _root + "/home/u/nixos-config"
+    shutil.copyfile(os.path.join(target_dir, "hardware-configuration.nix"),
+                    os.path.join(_flakedir, "hardware-configuration.nix"))
+    _expr = (
+        'let f = builtins.getFlake "path:' + _flakedir + '"; '
+        's = f.nixosConfigurations.scoot.config.programs.scootbar.settings; in { '
+        'left = s.left; center = s.center; right = s.right; '
+        'bg = s.colors.background; height = s.bar.height; }'
+    )
+    _got = _json.loads(subprocess.check_output(
+        ["nix", "eval", "--impure", "--json", "--expr", _expr],
+        stderr=subprocess.DEVNULL).decode())
+    check(_got["left"] == ["workspaces", "window-title"],
+          f"bar/{_look}: left {_got['left']} is not the example layout")
+    check(_got["center"] == ["clock"],
+          f"bar/{_look}: center {_got['center']} is not the example layout")
+    check(_got["right"] == _right,
+          f"bar/{_look}: right {_got['right']} is not the example layout")
+    check(_got["bg"] == _bg,
+          f"bar/{_look}: background {_got['bg']} != {_bg}")
+    check(_got["height"] == _height,
+          f"bar/{_look}: height {_got['height']} != {_height}")
+    if not [f for f in failures if f.startswith(f"bar/{_look}")]:
+        print(f"bar OK: {_look} (bg={_got['bg']}, height={_height})")
+    shutil.rmtree(_root, ignore_errors=True)
+
+if failures:
+    print(f"bar-check FAILED ({len(failures)} problems)")
+    sys.exit(1)
+print("bar-check OK")
+
+# --- autologin warning: a ticked box must warn, not vanish --------
+# The scoot branch writes its own greeter files (ReGreet, never
+# autologin), so the stock autologin snippet never lands. Run the
+# writer with autoLoginUser set and assert the warning names it.
+class _AutoGS(FakeGS):
+    def value(self, k):
+        if k == "autoLoginUser":
+            return "u"
+        return super().value(k)
+
+
+_autoroot = "/tmp/render-check-autologin"
+shutil.rmtree(_autoroot, ignore_errors=True)
+os.makedirs(_autoroot + "/etc/nixos", exist_ok=True)
+open(_autoroot + "/etc/nixos/configuration.nix", "w").write("# classic boilerplate\n")
+open(_autoroot + "/etc/nixos/hardware-configuration.nix", "w").write("{ }\n")
+_g = {"gs": _AutoGS("scoot-moonrise", "home"), "libcalamares": FakeCal(),
+      "root_mount_point": _autoroot,
+      "variables": {"hostname": "t", "username": "u", "fullname": "U T", "nixosversion": "25.11"},
+      "os": os, "re": re, "subprocess": FakeSubprocess}
+warnings.clear()
+exec(branch, _g)  # noqa: S102 (test harness for generated installer code)
+check(any("automatic-login" in w for w in warnings),
+      f"autologin tick drew no warning (warnings: {warnings})")
+if not [f for f in failures if "autologin" in f]:
+    print("autologin-warn OK")
+shutil.rmtree(_autoroot, ignore_errors=True)
+
+if failures:
+    print(f"autologin-check FAILED ({len(failures)} problems)")
+    sys.exit(1)
+print("autologin-check OK")
+
 # --- canonical check: the QEMU test's exact config == the mirror ------
 # The patch bakes @@SYSTEM@@ at ISO build time, so the generated flake
 # names its own system: read it back and compare against the mirror for
