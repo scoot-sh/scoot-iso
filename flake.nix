@@ -7,11 +7,13 @@
   # verified 2026-10-05 against the pinned nixpkgs source).
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe";
-    # Pinned to scoot main at 4ad638881 (2026-10-06, post-#435 idle/lock, so
+    # Pinned to scoot main at d7de6eafa (2026-10-06, post-#435 idle/lock, so
     # the installed system dims/locks/sleeps panels; post-#437
     # moonrise, so the default look ships a real wallpaper; post-#468,
-    # so installs don't carry the greeter's leaked dbus-daemon pair).
-    scoot.url = "github:scoot-sh/scoot/4ad6388814bd175330cea32830756a2393545ae8";
+    # so installs don't carry the greeter's leaked dbus-daemon pair;
+    # post-#471/#472, so the desktop profile carries the audio baseline
+    # with media keys/OSD and night light).
+    scoot.url = "github:scoot-sh/scoot/d7de6eafa630685bbe385db7ad8d9c93de124a1b";
     # Pinned to home-manager master at f53f3267 (2026-10-05), for the
     # installed user's desktop-profile half.
     home-manager.url = "github:nix-community/home-manager/f53f3267f5d009dd8f99443505e609389d7ff267";
@@ -75,11 +77,13 @@
               ${./iso/target/flake.lock} \
               ${./nix/packagechooser-scoot.conf} \
               ${./nix/packagechooser-scoot-location.conf} \
+              ${./nix/scoot-netprobe.conf} \
               ${system} \
               $out/src/modules/nixos/main.py \
               $out/src/config/modules/packagechooser.conf \
               $out/src/config/settings.conf \
-              $out/src/config/modules/scoot-location.conf
+              $out/src/config/modules/scoot-location.conf \
+              $out/src/config/modules/scoot-netprobe.conf
           '';
         };
       # Note the /src suffix: the package's src is the src/
@@ -202,8 +206,10 @@
               ${./nix/calamares-patch.py} \
               ${./nix/packagechooser-scoot.conf} \
               ${./nix/packagechooser-scoot-location.conf} \
+              ${./nix/scoot-netprobe.conf} \
               ${./scripts/qemu-test.sh} \
               ${./scripts/build-iso-docker.sh} \
+              ${./.github/workflows/ci.yml} \
               ${./.} && touch $out
           '';
         }

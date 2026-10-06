@@ -3,17 +3,23 @@
 
 The scoot choice writes a flake-based target (flake.nix + flake.lock +
 configuration.nix from this repo, into ~/nixos-config by default or
-/etc/nixos) and installs it with `nixos-install --flake` and
-substitute=false, so install works with the network cut: every input
-source the installed flake needs rides the ISO (resolved from its own
-lock at ISO build time), the flake inputs are archived into the target
-store (`nix flake archive --to`, since the build fetches inputs into
-the build store) and the target's closure is pre-copied from the live
-store (`nix copy --to`, since building into the target store does not
-consult the live store), and the legacy channel copy is skipped
-(--no-channel-copy: a flake system never reads channels, and the copy
-cannot work offline). No --override-input, so the installed flake.lock
-stays pristine github pins. Everything else (hostname, user, timezone,
+/etc/nixos) and installs it with `nixos-install --flake`. With the
+network up (probed before partitioning by the scoot-netprobe
+shellprocess step, falling back to a live probe here), the install
+uses the normal substituters (cache.nixos.org plus the scoot Cachix
+the flake already trusts), so real hardware — whose kernel modules,
+filesystems and config differ from the ISO's shipped closure —
+installs like any other NixOS. Only when offline does the install
+use the shipped store (`nix flake archive --to` for the flake inputs,
+`nix copy --to` for the target closure, `substitute=false` throughout,
+`--no-channel-copy` always): every input source the installed flake
+needs rides the ISO (resolved from its own lock at ISO build time),
+and the lock is never rewritten (--no-write-lock-file), so the
+installed flake.lock stays pristine github pins. Offline, a
+pre-flight (target toplevel eval plus a live-store closure check)
+fails BEFORE nixos-install writes anything when this hardware needs
+paths the ISO does not ship, naming them ("connect to the network,
+or ..."). Everything else (hostname, user, timezone,
 locale, firefox) mirrors the stock classic path's variables.
 
 Every anchor is asserted to occur exactly once, so a nixpkgs re-pin that
@@ -22,9 +28,9 @@ dropping scoot. Never touches upstream: the patch is carried in this repo.
 
 Usage:
   calamares-patch.py <ext-src> <target-flake> <target-config> \\
-      <target-lock> <look-items> <location-conf> <system> \\
+      <target-lock> <look-items> <location-conf> <netprobe-conf> <system> \\
       <out-main.py> <out-packagechooser.conf> <out-settings.conf> \\
-      <out-location.conf>
+      <out-location.conf> <out-netprobe.conf>
 """
 
 import json
@@ -55,6 +61,17 @@ HM_USER_STANZA = """\
     desktop.look = "@@SCOOT_LOOK@@";
   };
   home-manager.users."@@username@@".programs.scootbar.enable = true;
+  # The installed bar draws the look's example layout (scootBarLayouts
+  # in configuration.nix, selected by the installed desktop.look, the
+  # same expression the system half uses), whichever unit the session
+  # starts: without this, the home unit's empty config shadows the
+  # system unit (same unit name, home wins) and the installed desktop
+  # shows the bar binary's clock-only default. The home unit itself
+  # stays off, so exactly one daemon runs: the system one, whose
+  # config names /etc/scootbar/bar.toml explicitly.
+  home-manager.users."@@username@@".programs.scootbar.settings =
+    scootBarLayouts.${config.programs.scoot.desktop.look} or scootBarLayouts.moonrise;
+  home-manager.users."@@username@@".programs.scootbar.systemd.enable = false;
   home-manager.users."@@username@@".home.stateVersion = "25.11";
 """
 
@@ -113,11 +130,13 @@ def main() -> None:
         target_lock,
         item_file,
         location_file,
+        netprobe_file,
         system,
         out_main,
         out_packagechooser,
         out_settings,
         out_location,
+        out_netprobe,
     ) = sys.argv[1:]
 
     with open(f"{ext_src}/src/modules/nixos/main.py") as f:
@@ -136,6 +155,8 @@ def main() -> None:
         item_text = f.read()
     with open(location_file) as f:
         location_text = f.read()
+    with open(netprobe_file) as f:
+        netprobe_text = f.read()
 
     if "@@SYSTEM@@" not in flake_text:
         raise SystemExit("target flake.nix lost its @@SYSTEM@@ placeholder")
@@ -187,7 +208,19 @@ def main() -> None:
         raise SystemExit("settings.conf instances anchor not found exactly once; upstream changed, update the patch")
     settings = settings.replace(
         location_anchor_instances,
-        "- id:       scoot-location\n  module:   packagechooser\n  config:   scoot-location.conf\n" + location_anchor_instances,
+        "- id:       scoot-location\n  module:   packagechooser\n  config:   scoot-location.conf\n"
+        "- id:       scoot-netprobe\n  module:   shellprocess\n  config:   scoot-netprobe.conf\n"
+        + location_anchor_instances,
+        1,
+    )
+    # The netprobe step runs FIRST in the exec phase, before partition:
+    # it only records the network verdict, so it can never fail the job.
+    exec_anchor_probe = "- exec:\n  - partition\n"
+    if settings.count(exec_anchor_probe) != 1:
+        raise SystemExit("settings.conf exec anchor not found exactly once; upstream changed, update the patch")
+    settings = settings.replace(
+        exec_anchor_probe,
+        "- exec:\n  - shellprocess@scoot-netprobe\n  - partition\n",
         1,
     )
     settings = replace_once(
@@ -201,6 +234,12 @@ def main() -> None:
             raise SystemExit(f"location item {loc_id} missing from the location template")
     if "default: home" not in location_text:
         raise SystemExit("location template lost its home default")
+    if "dontChroot: true" not in netprobe_text:
+        raise SystemExit("netprobe conf must run on the host (dontChroot: true)")
+    if "exit 0" not in netprobe_text:
+        raise SystemExit("netprobe conf must always exit 0 (the verdict is data, never a job failure)")
+    if "/tmp/scoot-netmode" not in netprobe_text:
+        raise SystemExit("netprobe conf lost the /tmp/scoot-netmode handoff")
 
     # 2. When scoot is chosen, write our flake files instead of the
     # classic configuration.nix. The stock `variables` dict (hostname,
@@ -218,6 +257,12 @@ def main() -> None:
         '    scoot_looks = ' + repr(SCOOT_LOOKS) + '\n'
         '    if scoot_choice in scoot_looks:\n'
         '        scoot_look = scoot_looks[scoot_choice]\n'
+        # The scoot branch writes its own greeter files (ReGreet, never
+        # autologin), so the stock autologin snippet never lands — the
+        # safe direction, but loud: the user's tick must not vanish
+        # silently (mirrors the no-user warnings below).
+        '        if gs.value("autoLoginUser") is not None:\n'
+        '            libcalamares.utils.warning("scoot install ignores the automatic-login choice: the installed system always greets with ReGreet and never autologins")\n'
         '        scoot_loc = gs.value("packagechooser_scoot-location")\n'
         '        if scoot_loc not in ("home", "system"):\n'
         '            scoot_loc = "home"\n'
@@ -292,30 +337,42 @@ def main() -> None:
     )
     main_py = replace_once(main_py, anchor_write, writer, "target writer")
 
-    # 3. Install the flake choice offline: every input source the
-    # installed flake needs rides the ISO (resolved from its own lock at
-    # ISO build time), so no --override-input is needed and the
-    # installed flake.lock stays pristine. substitute=false makes any
-    # gap loud instead of phoning home; the lock is never rewritten
-    # (--no-write-lock-file). The legacy channel is skipped
-    # (--no-channel-copy): the target is a pure flake system (registry
-    # pins, nh.flake, pristine lock) and never reads <nixpkgs> channels;
-    # copying the channel into an empty target store with
-    # substitute=false fails (proven in CI: the channel path is only in
-    # the live store, and `nix-env --set --store` does not copy across).
-    # For the same reason the flake inputs are archived into the
-    # target store first (`nix flake archive --to`: `nix build --store`
-    # fetches inputs into the build store, which is empty) and the
-    # target's closure is pre-copied from the live store (`nix copy
-    # --to`: building into the target store does not consult the live
-    # store). Both copies pass --no-check-sigs: ISO store paths are
-    # valid but locally built ones carry no signatures, and the target
-    # store starts empty with require-sigs on; trust comes from the ISO
-    # itself, and substitute=false still bars the network. The toplevel
-    # is already in the ISO store (the reference target in
-    # nix/target-machine.nix names the exact system the test installs;
-    # its toplevel rides isoImage.storeContents), so the copies are pure
-    # disk I/O and the build that follows is a no-op.
+    # 3. Install the flake choice. With the network up, the install
+    # uses the normal substituters (cache.nixos.org plus the scoot
+    # Cachix the target config already trusts), so real hardware —
+    # whose closure differs from the ISO's shipped reference — installs
+    # like any other NixOS. Only when offline does the install use the
+    # shipped store: every input source the installed flake needs rides
+    # the ISO (resolved from its own lock at ISO build time), so no
+    # --override-input is needed and the installed flake.lock stays
+    # pristine. Offline, substitute=false makes any gap loud instead of
+    # phoning home; the lock is never rewritten (--no-write-lock-file).
+    # The legacy channel is skipped in both modes (--no-channel-copy):
+    # the target is a pure flake system (registry pins, nh.flake,
+    # pristine lock) and never reads <nixpkgs> channels; copying the
+    # channel into an empty target store with substitute=false fails
+    # (proven in CI: the channel path is only in the live store, and
+    # `nix-env --set --store` does not copy across). Offline, the flake
+    # inputs are archived into the target store first (`nix flake
+    # archive --to`: `nix build --store` fetches inputs into the build
+    # store, which is empty) and the target's closure is pre-copied
+    # from the live store (`nix copy --to`: building into the target
+    # store does not consult the live store). Both copies pass
+    # --no-check-sigs: ISO store paths are valid but locally built ones
+    # carry no signatures, and the target store starts empty with
+    # require-sigs on; trust comes from the ISO itself, and
+    # substitute=false still bars the network. The toplevel is already
+    # in the ISO store for the reference target (the reference target
+    # in nix/target-machine.nix names the exact system the test
+    # installs; its toplevel rides isoImage.storeContents), so the
+    # copies are pure disk I/O and the build that follows is a no-op.
+    # The network mode comes from the pre-partition probe
+    # (/tmp/scoot-netmode, written by the shellprocess step this patch
+    # sequences before partition), falling back to a live probe of the
+    # substituters here when the file is missing. The mode is logged;
+    # offline, a pre-flight (target toplevel eval plus a live-store
+    # closure check) fails BEFORE nixos-install writes anything when
+    # this hardware needs paths the ISO does not ship, naming them.
     anchor_cmd = (
         '            "--option",\n'
         '            "build-dir",\n'
@@ -338,20 +395,70 @@ def main() -> None:
         + '        else:\n'
         + '            scoot_flake_ref = root_mount_point + "/etc/nixos#scoot"\n'
         + '        scoot_flake_dir = root_mount_point + "/home/" + scoot_cmd_user + "/nixos-config" if scoot_cmd_loc == "home" else root_mount_point + "/etc/nixos"\n'
-        + '        scoot_toplevel = subprocess.check_output(["nix", "eval", "--offline", "--option", "substitute", "false", "--no-write-lock-file", "--raw", scoot_flake_dir + "#nixosConfigurations.scoot.config.system.build.toplevel"], stderr=subprocess.STDOUT).decode().strip()\n'
-        + '        subprocess.check_output(["nix", "flake", "archive", "--to", root_mount_point, "--offline", "--no-check-sigs", scoot_flake_dir], stderr=subprocess.STDOUT)\n'
-        + '        subprocess.check_output(["nix", "copy", "--to", root_mount_point, "--no-check-sigs", scoot_toplevel], stderr=subprocess.STDOUT)\n'
+        + '        scoot_netmode = "offline"\n'
+        + '        try:\n'
+        + '            with open("/tmp/scoot-netmode") as _scoot_nm:\n'
+        + '                if _scoot_nm.read().strip() == "online":\n'
+        + '                    scoot_netmode = "online"\n'
+        + '        except OSError:\n'
+        + '            pass\n'
+        + '        if scoot_netmode != "online":\n'
+        + '            try:\n'
+        + '                import urllib.request as _scoot_urlreq\n'
+        + '                for _scoot_probe in ("https://cache.nixos.org/nix-cache-info", "https://scoot-sh.cachix.org/nix-cache-info"):\n'
+        + '                    try:\n'
+        + '                        if _scoot_urlreq.urlopen(_scoot_probe, timeout=8).read(32):\n'
+        + '                            scoot_netmode = "online"\n'
+        + '                            break\n'
+        + '                    except Exception:\n'
+        + '                        pass\n'
+        + '            except Exception:\n'
+        + '                pass\n'
+        + '        libcalamares.utils.debug("scoot install network mode: " + scoot_netmode)\n'
+        + '        if scoot_netmode != "online":\n'
+        + '            _scoot_ev = subprocess.run(["nix", "eval", "--offline", "--option", "substitute", "false", "--no-write-lock-file", "--raw", scoot_flake_dir + "#nixosConfigurations.scoot.config.system.build.toplevel"], capture_output=True, text=True)\n'
+        + '            if _scoot_ev.returncode != 0:\n'
+        + '                return (_("scoot install needs the network"), _("Offline install cannot proceed: the installed system could not be evaluated from the ISO ({}). Connect to the network and install again, or install on hardware matching the ISO.").format((_scoot_ev.stderr or "")[-500:]))\n'
+        + '            scoot_toplevel = _scoot_ev.stdout.strip().split()[-1]\n'
+        + '            try:\n'
+        + '                _scoot_pi = subprocess.run(["nix", "path-info", "-r", "--offline", scoot_toplevel], capture_output=True, text=True)\n'
+        + '                if _scoot_pi.returncode != 0:\n'
+        + '                    raise subprocess.CalledProcessError(_scoot_pi.returncode, "nix path-info")\n'
+        + '                scoot_closure = [p for p in _scoot_pi.stdout.split() if p.startswith("/nix/store/")]\n'
+        + '                scoot_missing = [p for p in scoot_closure if not os.path.exists(p)]\n'
+        + '            except subprocess.CalledProcessError:\n'
+        + '                scoot_missing = [scoot_toplevel]\n'
+        + '                try:\n'
+        + '                    _scoot_dry = subprocess.run(["nix", "build", "--dry-run", "--offline", "--option", "substitute", "false", "--no-link", scoot_flake_dir + "#nixosConfigurations.scoot.config.system.build.toplevel"], capture_output=True, text=True, timeout=300)\n'
+        + '                    for _scoot_line in ((_scoot_dry.stderr or "") + "\\n" + (_scoot_dry.stdout or "")).splitlines():\n'
+        + '                        _scoot_line = _scoot_line.strip()\n'
+        + '                        if _scoot_line.startswith("/nix/store/") and _scoot_line.endswith(".drv"):\n'
+        + '                            try:\n'
+        + '                                _scoot_show = subprocess.run(["nix", "derivation", "show", _scoot_line], capture_output=True, text=True, timeout=120)\n'
+        + '                                for _scoot_out in re.findall(r"/nix/store/[a-z0-9]+-[^\\"\\s]+", _scoot_show.stdout or ""):\n'
+        + '                                    if _scoot_out not in scoot_missing and not os.path.exists(_scoot_out):\n'
+        + '                                        scoot_missing.append(_scoot_out)\n'
+        + '                            except Exception:\n'
+        + '                                pass\n'
+        + '                except Exception:\n'
+        + '                    pass\n'
+        + '            if scoot_missing:\n'
+        + '                scoot_shown = ", ".join(sorted(scoot_missing)[:8])\n'
+        + '                if len(scoot_missing) > 8:\n'
+        + '                    scoot_shown += " (and {} more)".format(len(scoot_missing) - 8)\n'
+        + '                return (_("scoot install needs the network"), _("Offline install cannot proceed: this hardware needs {} store paths that are not on the ISO ({}). Connect to the network and install again, or install on hardware matching the ISO.").format(len(scoot_missing), scoot_shown))\n'
+        + '            subprocess.check_output(["nix", "flake", "archive", "--to", root_mount_point, "--offline", "--no-check-sigs", scoot_flake_dir], stderr=subprocess.STDOUT)\n'
+        + '            subprocess.check_output(["nix", "copy", "--to", root_mount_point, "--no-check-sigs", scoot_toplevel], stderr=subprocess.STDOUT)\n'
         + "        nixosInstallCmd.extend(\n"
         + "            [\n"
         + '                "--flake",\n'
         + '                scoot_flake_ref,\n'
         + '                "--no-write-lock-file",\n'
         + '                "--no-channel-copy",\n'
-        + '                "--option",\n'
-        + '                "substitute",\n'
-        + '                "false",\n'
         + "            ]\n"
         + "        )\n"
+        + '        if scoot_netmode != "online":\n'
+        + '            nixosInstallCmd.extend(["--option", "substitute", "false"])\n'
     )
     main_py = replace_once(main_py, anchor_cmd, cmd_patch, "install command")
 
@@ -384,6 +491,8 @@ def main() -> None:
         f.write(settings)
     with open(out_location, "w") as f:
         f.write(location_text)
+    with open(out_netprobe, "w") as f:
+        f.write(netprobe_text)
 
 
 if __name__ == "__main__":
