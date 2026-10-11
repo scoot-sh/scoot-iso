@@ -7,10 +7,11 @@
   # verified 2026-10-05 against the pinned nixpkgs source).
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe";
-    # Pinned to scoot main at ca35bd7c (2026-10-06, post-#474, so the
-    # desktop look themes GTK/Qt/fonts/dark mode/greeter; post-#479,
-    # so `scoot msg binds` answers and Super+? opens the keymap).
-    scoot.url = "github:scoot-sh/scoot/ca35bd7c85c8152af5dada1d4c756da3cc39902f";
+    # Pinned to scoot main at 722afd22 (2026-10-11: renderer cpu|gpu|auto
+    # with a per-session auto policy (#552), the GPU-tier seat reconnect
+    # (#551), packaged systemd user units (#553), and the runtime-gbm
+    # spike (off by default, #547)).
+    scoot.url = "github:scoot-sh/scoot/722afd22ebd7784b575713696972866bfcbea3da";
     # Pinned to home-manager master at f53f3267 (2026-10-05), for the
     # installed user's desktop-profile half.
     home-manager.url = "github:nix-community/home-manager/f53f3267f5d009dd8f99443505e609389d7ff267";
