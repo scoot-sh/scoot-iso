@@ -32,7 +32,7 @@ docker = open(docker_path).read()
 ci = open(ci_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
-SCOOT_REV = "ca35bd7c85c8152af5dada1d4c756da3cc39902f"
+SCOOT_REV = "722afd22ebd7784b575713696972866bfcbea3da"
 HM_REV = "f53f3267f5d009dd8f99443505e609389d7ff267"
 CACHIX_URL = "https://scoot-sh.cachix.org"
 CACHIX_KEY = "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
