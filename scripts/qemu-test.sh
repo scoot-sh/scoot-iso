@@ -322,6 +322,53 @@ sleep 5 # let the welcome page paint
 qmp screendump "{\"filename\": \"$WORKDIR/welcome-window.ppm\"}" >/dev/null
 echo "welcome screenshot: $WORKDIR/welcome-window.ppm"
 
+echo "=== phase 1b2: the live desktop is complete and styled ==="
+# The welcome window above proves Firefox autostarts, but it cannot
+# prove the bar wears the look, the launcher is bound, or a terminal
+# opens: those three regressed silently while this phase only checked
+# the welcome window. Every check below is a hard gate (a FAIL sets
+# fail=1 and the block exits $fail; the key-press spawn exits non-zero
+# on failure). Costs one extra screendump and a few guest-exec round
+# trips (~30 s, no new VM boot).
+guest_exec '
+fail=0
+echo "--- the live bar wears the look layout, not the minimal default ---"
+grep -q "window-title" /etc/scootbar/bar.toml && grep -q "button.terminal" /etc/scootbar/bar.toml && grep -q "button.browser" /etc/scootbar/bar.toml && grep -q "button.welcome" /etc/scootbar/bar.toml && grep -q "power" /etc/scootbar/bar.toml && echo LIVE-BAR-CONTENT-OK || { echo LIVE-BAR-CONTENT-FAIL; fail=1; }
+echo "--- the live bar face is the Nerd file (no tofu) ---"
+barfont=$(grep "^font = " /etc/scootbar/bar.toml | cut -d\" -f2)
+test -n "$barfont" && test -f "$barfont" && echo LIVE-BAR-FONT-OK || { echo "LIVE-BAR-FONT-FAIL: [$barfont]"; fail=1; }
+echo "--- exactly one live bar daemon ---"
+bars=$(pgrep -c -u nixos -x scootbar || true)
+[ "$bars" = 1 ] && echo LIVE-BAR-PROC-OK || { echo "LIVE-BAR-PROC-FAIL: $bars scootbar daemons (want exactly 1)"; fail=1; }
+echo "--- launcher and terminal installed ---"
+# fuzzel rides the system PATH; the themed scoot-launcher wrapper lives
+# in the store and is named by absolute path in the compositor binds
+# (home packages are not on the bare PATH this probe runs with), so its
+# presence is read off the generated config, not `command -v`.
+command -v fuzzel >/dev/null && grep -q "scoot-launcher" /home/nixos/.config/scoot/config.toml && echo LIVE-LAUNCHER-BIN-OK || { echo LIVE-LAUNCHER-BIN-FAIL; fail=1; }
+command -v foot >/dev/null && echo LIVE-TERMINAL-BIN-OK || { echo LIVE-TERMINAL-BIN-FAIL; fail=1; }
+[ "$fail" = 0 ] && echo LIVE-DESKTOP-OK
+exit $fail
+'
+echo "--- the live keymap binds the launcher and the terminal ---"
+guest_exec '
+export XDG_RUNTIME_DIR=/run/user/$(id -u nixos)
+export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock
+fail=0
+su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg binds" > /tmp/live-binds.txt && echo LIVE-BINDS-OK || { echo LIVE-BINDS-FAIL; fail=1; }
+grep -q "super+d" /tmp/live-binds.txt && echo LIVE-BIND-LAUNCHER-OK || { echo LIVE-BIND-LAUNCHER-FAIL; fail=1; }
+grep -q "super+Return" /tmp/live-binds.txt && echo LIVE-BIND-TERMINAL-OK || { echo LIVE-BIND-TERMINAL-FAIL; fail=1; }
+[ "$fail" = 0 ] && echo LIVE-BINDS-CONTENT-OK
+exit $fail
+'
+echo "--- a terminal opens from the standard key and maps ---"
+guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock; su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg key super+Return" && echo LIVE-KEY-OK'
+sleep 5 # let foot map
+guest_exec 'export XDG_RUNTIME_DIR=/run/user/$(id -u nixos); export SCOOT_SOCKET=$XDG_RUNTIME_DIR/scoot.sock; su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR SCOOT_SOCKET=$SCOOT_SOCKET scoot msg windows" | grep -qi "foot" && echo LIVE-TERMINAL-SPAWN-OK || { echo LIVE-TERMINAL-SPAWN-FAIL; exit 1; }'
+sleep 2 # let the terminal paint
+qmp screendump "{\"filename\": \"$WORKDIR/live-desktop.ppm\"}" >/dev/null
+echo "live desktop screenshot (welcome + terminal, not the welcome window alone): $WORKDIR/live-desktop.ppm"
+
 echo "=== phase 1c: the shipped patch embeds our exact templates ==="
 # The patch embeds the target files via repr(); the guest extracts them
 # from the live ISO's patched main.py and compares hashes, so no bulk

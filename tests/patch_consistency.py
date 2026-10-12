@@ -247,6 +247,21 @@ for _side, _text in (("target configuration.nix", config), ("mirror", mirror)):
     check("fonts.packages" in _text, f"{_side} lost fonts.packages (foot/greeter resolve through fontconfig)")
     check("DejaVuSans.ttf" not in _text, f"{_side} still names a DejaVu bar face (tofu)")
 check("DejaVuSans.ttf" not in live, "live session still hand-sets a DejaVu bar face (the profile themes the Propo)")
+# The live session is a complete desktop through the nixos user's
+# home-manager half (binds including the launcher, the themed launcher
+# script, the look's wallpaper): without it the launcher binary sat on
+# PATH with no bind, and the bar was a hand-rolled minimal one. The
+# flake wires the home modules for the live user; live.nix wears the
+# look's full bar layout (window title, launcher buttons, power popup)
+# plus the live-only Welcome button, with both Nerd faces and dconf
+# for the activation.
+check("home-manager.users.nixos.programs.scoot" in live, "live session lost the nixos home-manager profile (launcher binds come from it)")
+check("window-title" in live, "live session lost the look bar layout (unstyled bar)")
+check("button.terminal" in live and "button.browser" in live, "live session lost the bar launcher buttons (no terminal/browser from the bar)")
+check('"popup"' in live, "live session lost the bar power popup (no way out of a stuck state)")
+check("fonts.packages" in live, "live session lost fonts.packages (foot's Nerd face falls back)")
+check("programs.dconf.enable = true" in live, "live session lost programs.dconf.enable (home-manager activation fails)")
+check("settings.autostart.commands" in live, "live session lost the home-manager welcome autostart")
 # The look's dark-mode signal rides home-manager's dconf module, which
 # needs the system's dconf service: without it the home-manager unit
 # fails with no session bus (boot and `nh os switch` alike), the user
@@ -286,6 +301,7 @@ import os as _os
 _repo_root = repo_path
 _root_flake = open(_os.path.join(_repo_root, "flake.nix")).read()
 check("specialArgs" in _root_flake and "inherit scoot" in _root_flake, "flake.nix lost the mirror's scoot specialArg (greeter wallpaper)")
+check("home-manager.users.nixos" in _root_flake, "flake.nix lost the live user's home-manager imports (no launcher binds on live)")
 
 # Every local <img src> in the welcome page must resolve inside the
 # shipped directory: either a file beside the page in iso/welcome/ or
@@ -310,6 +326,10 @@ for _token in ("#000000", "#FFFFFF", "#CB6F34", "League Spartan"):
 check("hero-cat-960.jpg" in _welcome_page, "welcome page lost the cat hero art")
 check("box-shadow" not in _welcome_page and "linear-gradient" not in _welcome_page,
       "welcome page uses shadows or gradients (the brand is flat)")
+# The welcome window is the live session's key help: it must name the
+# launcher key beside the terminal key, or a user with no terminal
+# cannot discover it.
+check("<kbd>d</kbd>" in _welcome_page, "welcome page lost the launcher key (Super+d)")
 
 # Live session seeds the welcome browser's profile (Firefox's
 # default-profile auto-creation fails on live media: "Profile Missing").
@@ -370,6 +390,15 @@ check("--headless" not in qemu, "qemu-test still runs a headless stand-in instea
 check("BAR-SPACE-OK" in qemu, "qemu-test lost the bar-reserves-space proof (usable vs rect)")
 check("BAR-PROC-OK" in qemu and "BG-PROC-OK" in qemu, "qemu-test lost the resident bar/wallpaper proof")
 check("SCREENSHOT-OK" in qemu, "qemu-test lost the guest-side screenshot proof")
+
+# Live-desktop proofs (phase 1b2): the welcome window alone could never
+# catch an unstyled bar, an unbound launcher or an unopenable
+# terminal. The bar layout, the keymap binds and a real terminal spawn
+# are hard gates, plus a screendump past the welcome window.
+check("LIVE-BAR-CONTENT-OK" in qemu, "qemu-test lost the live-bar content proof")
+check("LIVE-BIND-LAUNCHER-OK" in qemu and "LIVE-BIND-TERMINAL-OK" in qemu, "qemu-test lost the live keymap proof")
+check("LIVE-TERMINAL-SPAWN-OK" in qemu, "qemu-test lost the live terminal-spawn proof")
+check("live-desktop.ppm" in qemu, "qemu-test lost the live-desktop screendump (beyond the welcome window)")
 
 # Complete PNG fetch: small chunks until the first missing piece, then
 # an exact byte-count match against the guest. The old loop broke on a
@@ -436,7 +465,9 @@ check("FOOT-FONT-FAMILY-OK" in qemu, "qemu-test lost the foot font-family proof 
 # could never fail: set -e exempts AND-lists.)
 for _marker in ("SOCKET", "MSG-VERSION", "MSG-OUTPUTS", "MSG-WINDOWS", "HM-UNIT", "BAR-CONTENT", "BAR-NO-WELCOME",
                 "BAR-FONT-FAMILY", "BAR-FONT-FILE", "FOOT-FONT-FAMILY", "BAR-PROC", "BAR-UNIT", "BG-PROC", "SCREENSHOT",
-                "SYMLINK", "LOCK", "TWEAK-FROM-NETWORK"):
+                "SYMLINK", "LOCK", "TWEAK-FROM-NETWORK",
+                "LIVE-BAR-CONTENT", "LIVE-BAR-FONT", "LIVE-BAR-PROC", "LIVE-LAUNCHER-BIN", "LIVE-TERMINAL-BIN",
+                "LIVE-BINDS", "LIVE-BIND-LAUNCHER", "LIVE-BIND-TERMINAL", "LIVE-TERMINAL-SPAWN"):
     check(f"{_marker}-FAIL" in qemu, f"qemu-test {_marker} check has no FAIL branch (print-only gates can never fail)")
 check(qemu.count("exit $fail") >= 3, "qemu-test 3b/3c blocks must exit $fail")
 check("pgrep -c -u 1000 -x scootbar" in qemu, "qemu-test must COUNT bar daemons (exactly one), not just find one")
