@@ -105,7 +105,19 @@
               modules = [
                 scoot.nixosModules.scoot
                 scoot.nixosModules.scootbar
+                home-manager.nixosModules.home-manager
                 ./nix/live.nix
+                {
+                  # The live nixos user's desktop-profile half (binds,
+                  # launcher script, themed configs): without these
+                  # imports nix/live.nix's home-manager user settings
+                  # declare an option no module owns. Mirrors the
+                  # installed target below.
+                  home-manager.users.nixos.imports = [
+                    scoot.homeModules.scoot
+                    scoot.homeModules.scootbar
+                  ];
+                }
               ];
               specialArgs = {
                 inherit scoot flakeInputs targetInputSrcs;

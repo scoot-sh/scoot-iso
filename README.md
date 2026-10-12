@@ -68,8 +68,8 @@ Boot the stick in UEFI mode.
 
 - A scoot session straight after boot (no login prompt): full desktop
   profile (`programs.scoot.desktop.enable = true`) with the
-  **moonrise** look, its night-sky wallpaper, the scootbar status bar
-  (themed by the look), and Firefox.
+  **ginger-night** look, its cat-peeking wallpaper, the scootbar status bar
+  (the look's example layout, themed by the look), and Firefox.
 - A welcome window on first login: what scoot is, the essential keys,
   Install/Try pointers and doc links, in scoot.sh's own style (the
   scoot cat on black, ginger links). On the live session it reopens
@@ -191,7 +191,8 @@ dropping scoot.
 
 ## How to pick another look
 
-The ISO and the installer default to `moonrise`. The other looks
+The live session wears `ginger-night` (scoot's default look, matching
+the site and try-scoot); the installer defaults to `moonrise`. The other looks
 shipped by the pinned scoot are `music-desk` (light),
 `radial-burst` (dark) and `vinyl-sunset` (warm dark, no wallpaper image
 ships for it: its illustration's license forbids passing it on
@@ -211,15 +212,16 @@ nixos-rebuild switch --flake /etc/nixos#scoot
 ```
 
 To build an ISO whose live session wears another look, change
-`nix/live.nix` in two places: `programs.scoot.desktop.look`, and the
-live compositor config (`liveConfig`: background and focus-ring colors
-plus the wallpaper), which repeats moonrise's values by hand. The
-welcome page does not depend on the look.
+`nix/live.nix` in two places: `programs.scoot.desktop.look` (the system
+half and the live user's home-manager half), and the live bar layout
+(`liveBar`: bar colors plus the workspaces inactive color), which repeats
+the look's values by hand. The welcome page names the look in two places
+(the "wears" line and the footer).
 
 ## Wallpaper credit
 
 The moonrise wallpaper (`docs/assets/wallpapers/moonrise.png` in the
-pinned scoot, shown by the live session, the installed default and its
+pinned scoot, shown by the installed default and its
 login screen) is &ldquo;Silhouetted trees under moon and
 stars&rdquo; by saatvik 5554
 ([@saatvik_reddy_suravaram](https://unsplash.com/@saatvik_reddy_suravaram)),
