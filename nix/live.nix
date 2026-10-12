@@ -1,5 +1,5 @@
 # The scoot live system: a graphical NixOS installer ISO that boots
-# straight into a scoot session (full desktop profile, moonrise
+# straight into a scoot session (full desktop profile, ginger-night
 # look) with autologin (live media only: standard for installer ISOs;
 # the installed system never autologins, it gets ReGreet).
 #
@@ -50,8 +50,8 @@ let
     fi
   '';
 
-  # The live bar: the moonrise example layout
-  # (docs/examples/moonrise/bar.toml in the pinned scoot) plus the
+  # The live bar: the ginger-night example layout
+  # (docs/examples/ginger-night/bar.toml in the pinned scoot) plus the
   # live-only Welcome button, so the live session wears the look's
   # floating rounded bar with its icons and launcher buttons instead
   # of a hand-rolled minimal one. Values are the example's verbatim
@@ -68,8 +68,8 @@ let
       font = "${pkgs.nerd-fonts.droid-sans-mono}/share/fonts/opentype/NerdFonts/DroidSansM/DroidSansMNerdFontPropo-Regular.otf";
       execScripts = pkgs.runCommand "scootbar-exec-scripts" { } ''
         mkdir -p $out/bin
-        cp ${scoot.outPath}/docs/examples/moonrise/load.sh $out/bin/load.sh
-        cp ${scoot.outPath}/docs/examples/moonrise/cpu.sh $out/bin/cpu.sh
+        cp ${scoot.outPath}/docs/examples/ginger-night/load.sh $out/bin/load.sh
+        cp ${scoot.outPath}/docs/examples/ginger-night/cpu.sh $out/bin/cpu.sh
         chmod +x $out/bin/*
       '';
       glyph = pair: builtins.fromJSON ("\"" + pair + "\"");
@@ -103,12 +103,12 @@ let
         separator = 1;
       };
       colors = {
-        background = "#2B3648";
-        foreground = "#F6EEDC";
-        accent = "#FFA45C";
-        hover = "#FFD54A";
-        dim = "#9C8B95";
-        urgent = "#E87F6A";
+        background = "#0E0E0E";
+        foreground = "#F5EAD6";
+        accent = "#E57F29";
+        hover = "#FFB14B";
+        dim = "#8F7A63";
+        urgent = "#E05A4E";
       };
       workspaces = {
         pill-shape = "circle";
@@ -116,7 +116,7 @@ let
         item-gap = 3;
         margin = 8;
         disc = true;
-        inactive-color = "#B595AD";
+        inactive-color = "#8F7A63";
       };
       window-title = {
         icon = glyph "\\udb82\\udcc6";
@@ -264,7 +264,7 @@ in
       "flakes"
     ];
 
-    # The full desktop profile with the moonrise look, the session
+    # The full desktop profile with the ginger-night look, the session
     # entry and the bar (the profile themes it through programs.scootbar
     # when that module is imported, which it is here: the bar's face
     # is the look's DroidSansM Nerd Font Propo, not DejaVu, so the
@@ -273,7 +273,7 @@ in
       enable = true;
       package = scootPkgs.scoot;
       desktop.enable = true;
-      desktop.look = "moonrise";
+      desktop.look = "ginger-night";
       session.enable = true;
       # The installed system keeps the profile's idle policy (dim, lock,
       # screens off: a laptop that never locks is not daily-drivable),
@@ -304,7 +304,7 @@ in
     home-manager.users.nixos.programs.scoot = {
       enable = true;
       desktop.enable = true;
-      desktop.look = "moonrise";
+      desktop.look = "ginger-night";
       settings.autostart.commands = liveAutostart;
       desktop.idle.enable = false;
       desktop.idle.lock.enable = false;
