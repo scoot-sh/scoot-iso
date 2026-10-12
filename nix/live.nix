@@ -2,6 +2,16 @@
 # straight into a scoot session (full desktop profile, moonrise
 # look) with autologin (live media only: standard for installer ISOs;
 # the installed system never autologins, it gets ReGreet).
+#
+# The live nixos user is managed by home-manager (see flake.nix: the
+# live system imports the home-manager module with the scoot home
+# modules for nixos), the way the installed target manages its user:
+# the compositor config (the look's appearance and wallpaper), the
+# keymap binds (including the launcher on Super+d) and the themed
+# launcher script all come from the desktop profile. A hand-seeded
+# config.toml here used to bypass that half entirely, so the live
+# session had the launcher binary on PATH but no bind that spawned
+# it, and a hand-rolled minimal bar instead of the look's layout.
 {
   config,
   pkgs,
@@ -40,23 +50,146 @@ let
     fi
   '';
 
-  # Live compositor config for the nixos user: the moonrise look's
-  # appearance and its shipped wallpaper (docs/assets/wallpapers/
-  # moonrise.png in the pinned scoot, under the Unsplash License),
-  # plus the welcome opener. Binds stay scoot's defaults.
-  liveConfig = pkgs.writeText "live-config.toml" ''
-    [appearance]
-    background_color = "#2B3648"
-    focus_ring_active_color = "#FF9A49"
-    focus_ring_inactive_color = "#5E4B5B"
+  # The live bar: the moonrise example layout
+  # (docs/examples/moonrise/bar.toml in the pinned scoot) plus the
+  # live-only Welcome button, so the live session wears the look's
+  # floating rounded bar with its icons and launcher buttons instead
+  # of a hand-rolled minimal one. Values are the example's verbatim
+  # (icons are Nerd Font PUA glyphs, via JSON: Nix strings have no \U
+  # escape); the bar's face is the desktop profile's own UI face
+  # (DroidSansM Nerd Font Propo: DejaVu Sans has no Nerd glyphs, so a
+  # DejaVu face left every module icon a tofu box). Shared by the
+  # system bar and the live user's home-manager half below, so
+  # whichever unit the session starts draws the same layout; the home
+  # unit stays off so exactly one daemon runs (the installed target
+  # mirrors this pattern in nix/target-machine.nix).
+  liveBar =
+    let
+      font = "${pkgs.nerd-fonts.droid-sans-mono}/share/fonts/opentype/NerdFonts/DroidSansM/DroidSansMNerdFontPropo-Regular.otf";
+      execScripts = pkgs.runCommand "scootbar-exec-scripts" { } ''
+        mkdir -p $out/bin
+        cp ${scoot.outPath}/docs/examples/moonrise/load.sh $out/bin/load.sh
+        cp ${scoot.outPath}/docs/examples/moonrise/cpu.sh $out/bin/cpu.sh
+        chmod +x $out/bin/*
+      '';
+      glyph = pair: builtins.fromJSON ("\"" + pair + "\"");
+    in
+    {
+      left = [
+        "workspaces"
+        "window-title"
+        "welcome"
+      ];
+      center = [ "clock" ];
+      right = [
+        "load"
+        "cpu"
+        "network"
+        "volume"
+        "battery"
+        "terminal"
+        "browser"
+        "power"
+      ];
+      bar = {
+        inherit font;
+        height = 38;
+        margin = "10,14";
+        radius = 14;
+        opacity = 0.82;
+        font-size = 13;
+        padding = 10;
+        spacing = 8;
+        separator = 1;
+      };
+      colors = {
+        background = "#2B3648";
+        foreground = "#F6EEDC";
+        accent = "#FFA45C";
+        hover = "#FFD54A";
+        dim = "#9C8B95";
+        urgent = "#E87F6A";
+      };
+      workspaces = {
+        pill-shape = "circle";
+        pill-inset = 7;
+        item-gap = 3;
+        margin = 8;
+        disc = true;
+        inactive-color = "#B595AD";
+      };
+      window-title = {
+        icon = glyph "\\udb82\\udcc6";
+        show-app-id = false;
+        max-width = 360;
+      };
+      clock = {
+        format = "%-I:%M %P";
+        icon = glyph "\\udb80\\udd50";
+      };
+      exec.load = {
+        command = [ "${execScripts}/bin/load.sh" ];
+        icon = glyph "\\udb81\\ude1a";
+      };
+      exec.cpu = {
+        command = [ "${execScripts}/bin/cpu.sh" ];
+        icon = glyph "\\udb83\\udee0";
+      };
+      network = {
+        icon-wifi = map glyph [
+          "\\udb82\\udd1f"
+          "\\udb82\\udd22"
+          "\\udb82\\udd25"
+          "\\udb82\\udd28"
+        ];
+        icon-ethernet = glyph "\\udb80\\ude00";
+        show-text = false;
+      };
+      battery = {
+        icon = map glyph [
+          "\\udb80\\udc8e"
+          "\\udb80\\udc7b"
+          "\\udb80\\udc7e"
+          "\\udb80\\udc81"
+          "\\udb80\\udc79"
+        ];
+        icon-charging = glyph "\\udb80\\udc84";
+        icon-full = glyph "\\udb80\\udc79";
+      };
+      button.terminal = {
+        icon = glyph "\\udb80\\udd8d";
+        on-click.exec = [
+          "foot"
+          "--font=FiraCode Nerd Font:size=10"
+        ];
+      };
+      button.browser = {
+        icon = glyph "\\udb80\\udeaf";
+        on-click.exec = [ "firefox" ];
+      };
+      button.welcome = {
+        text = "Welcome";
+        on-click = {
+          exec = [
+            "${pkgs.firefox}/bin/firefox"
+            "--new-window"
+            "file:///etc/scoot-welcome/index.html"
+          ];
+        };
+      };
+      power = {
+        icon = glyph "\\udb81\\udc25";
+        on-click = "popup";
+      };
+    };
 
-    [wallpaper]
-    image = "${scoot}/docs/assets/wallpapers/moonrise.png"
-    mode = "fill"
-
-    [autostart]
-    commands = ["spawn ${welcomeFirstRun}"]
-  '';
+  # Live compositor autostart for the nixos user: the welcome opener.
+  # The look's appearance and wallpaper, the keymap binds and the
+  # launcher script arrive through the home-manager profile below, so
+  # no hand-written config.toml is seeded here (the previous one owned
+  # only appearance, wallpaper and autostart: no [binds], so Super+d
+  # did nothing). Binds stay the profile's.
+  liveAutostart = [ "spawn ${welcomeFirstRun}" ];
 
   welcomeLauncher = pkgs.writeTextDir "share/applications/scoot-welcome.desktop" ''
     [Desktop Entry]
@@ -155,36 +288,50 @@ in
     };
     programs.scootbar = {
       enable = true;
-      settings = {
-        left = [
-          "workspaces"
-          "welcome"
-        ];
-        center = [ "clock" ];
-        bar.height = 32;
-        colors = {
-          background = "#2B3648";
-          foreground = "#F6EEDC";
-          accent = "#FFA45C";
-          hover = "#FFD54A";
-          dim = "#9C8B95";
-          urgent = "#E87F6A";
-        };
-        # No bar.font here: the desktop profile themes the look's
-        # Nerd face (see the installed template); hand-setting DejaVu
-        # would override it and tofu the icons.
-        button.welcome = {
-          text = "Welcome";
-          on-click = {
-            exec = [
-              "${pkgs.firefox}/bin/firefox"
-              "--new-window"
-              "file:///etc/scoot-welcome/index.html"
-            ];
-          };
-        };
-      };
+      settings = liveBar;
     };
+
+    # The live user's desktop profile through home-manager: this half
+    # owns the compositor config file (the look's appearance and
+    # wallpaper, the keymap binds including the launcher, the themed
+    # launcher script), the way the installed target owns its user.
+    # Without it the live session had every launcher tool on PATH but
+    # no bind that ran one. The installed system keeps the profile's
+    # idle policy; the live session must never lock or blank (see the
+    # system half above), so the user half switches it off too (the
+    # two halves read separate option trees: the system half alone
+    # leaves the home swayidle unit running).
+    home-manager.users.nixos.programs.scoot = {
+      enable = true;
+      desktop.enable = true;
+      desktop.look = "moonrise";
+      settings.autostart.commands = liveAutostart;
+      desktop.idle.enable = false;
+      desktop.idle.lock.enable = false;
+      desktop.idle.mediaInhibit.enable = false;
+    };
+    # The live bar draws the same layout whichever unit the session
+    # starts; the home unit itself stays off, so exactly one daemon
+    # runs. Mirrors the installed target (nix/target-machine.nix).
+    home-manager.users.nixos.programs.scootbar.enable = true;
+    home-manager.users.nixos.programs.scootbar.settings = liveBar;
+    home-manager.users.nixos.programs.scootbar.systemd.enable = false;
+    home-manager.users.nixos.home.stateVersion = "25.11";
+
+    # The dconf service home-manager's dconf activation needs (the
+    # look's dark-mode signal): without it the home-manager unit fails
+    # with no session bus and the user config never links (no binds,
+    # no wallpaper). Mirrors the installed target.
+    programs.dconf.enable = true;
+
+    # Nerd-glyph surfaces beyond the bar file: foot's FiraCode Nerd
+    # Font (the bar's terminal button names it) resolves through
+    # fontconfig, so it rides fonts.packages exactly as on the
+    # installed target (the bar's own face is the file above).
+    fonts.packages = with pkgs; [
+      nerd-fonts.droid-sans-mono
+      nerd-fonts.fira-code
+    ];
 
     # Boot straight into the scoot session on live media only. This is
     # greetd's initial session (not displayManager.autoLogin), and it
@@ -220,24 +367,22 @@ in
 
     environment.etc."scoot-welcome".source = scootWelcomePage;
 
-    # Seed the live user's compositor config at boot (the live home is
+    # Seed the live welcome-browser profile at boot (the live home is
     # ephemeral; the NixOS module owns binaries and the login entry,
-    # the config file is seeded here). Also pre-creates the Firefox
-    # profile the welcome window uses: Firefox 155's default-profile
-    # auto-creation fails in the live session (empty HOME, no
-    # profiles.ini: "Profile Missing" dialog, proven across CI and local
-    # runs — while an existing profile, even freshly seeded, loads and
-    # populates fine). Seeding here, before greetd starts the session,
-    # is deterministic; the user.js also silences first-run tabs so the
-    # welcome page opens alone.
+    # the home-manager profile owns the compositor and bar configs).
+    # Firefox 155's default-profile auto-creation fails in the live
+    # session (empty HOME, no profiles.ini: "Profile Missing" dialog,
+    # proven across CI and local runs — while an existing profile,
+    # even freshly seeded, loads and populates fine). Seeding here,
+    # before greetd starts the session, is deterministic; the user.js
+    # also silences first-run tabs so the welcome page opens alone.
     systemd.services.scoot-live-seed = {
-      description = "Seed the live scoot session config";
+      description = "Seed the live welcome-browser profile";
       wantedBy = [ "multi-user.target" ];
       before = [ "greetd.service" ];
+      after = [ "home-manager-nixos.service" ];
       serviceConfig.Type = "oneshot";
       script = ''
-        mkdir -p /home/nixos/.config/scoot
-        cp ${liveConfig} /home/nixos/.config/scoot/config.toml
         mkdir -p /home/nixos/.mozilla/firefox/welcome.default
         cat > /home/nixos/.mozilla/firefox/profiles.ini <<'EOF'
         [Profile0]
