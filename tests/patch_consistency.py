@@ -32,7 +32,11 @@ docker = open(docker_path).read()
 ci = open(ci_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
-SCOOT_REV = "722afd22ebd7784b575713696972866bfcbea3da"
+# The scoot input rides the release tag (flake.nix names the tag); the
+# lock pins the tag's commit. nixpkgs needs no re-sync: v0.2.1's own
+# flake.lock names this same nixpkgs rev.
+SCOOT_REF = "v0.2.1"
+SCOOT_REV = "cf497e3b6351a47456fc58e4c14ef6d6dc114bd0"
 HM_REV = "f53f3267f5d009dd8f99443505e609389d7ff267"
 CACHIX_URL = "https://scoot-sh.cachix.org"
 CACHIX_KEY = "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
@@ -47,7 +51,7 @@ SCOOT_IDS = [
 
 # Target flake.nix: same revs, system baked at ISO build, scoot attr.
 check(f"nixpkgs/{NIXPKGS_REV}" in flake, "target flake.nix lost the pinned nixpkgs rev")
-check(f"scoot-sh/scoot/{SCOOT_REV}" in flake, "target flake.nix lost the pinned scoot rev")
+check(f"scoot-sh/scoot/{SCOOT_REF}" in flake, "target flake.nix lost the pinned scoot release tag")
 check(f"home-manager/{HM_REV}" in flake, "target flake.nix lost the pinned home-manager rev")
 check("@@SYSTEM@@" in flake, "target flake.nix lost its @@SYSTEM@@ placeholder")
 check("nixosConfigurations.scoot" in flake, "target flake.nix lost nixosConfigurations.scoot")
@@ -61,7 +65,13 @@ lock_data = _json.loads(lock)
 for _node in ("nixpkgs", "scoot", "home-manager"):
     _locked = lock_data["nodes"][_node]["locked"]
     check(_locked.get("type") == "github", f"target flake.lock node {_node} is not github-pinned")
+for _node in ("nixpkgs", "home-manager"):
+    _locked = lock_data["nodes"][_node]["locked"]
     check(_locked["rev"] in flake, f"target flake.lock rev {_locked['rev']} not in target flake.nix")
+# The scoot input rides the release tag, so its lock rev is the tag's
+# commit rather than a literal line in flake.nix.
+check(lock_data["nodes"]["scoot"]["locked"]["rev"] == SCOOT_REV,
+      "target flake.lock scoot rev is not the v0.2.1 commit")
 check('"type": "path"' not in lock, "target flake.lock must not contain path: overrides")
 check("@@" not in lock, "target flake.lock must not contain placeholders")
 
@@ -171,6 +181,7 @@ check('"/etc/nixos#scoot"' in patch, "patch script lost the system-wide install 
 check("setprogress(INSTALL_PROGRESS_END)" in patch, "patch script lost the post-install anchor (ownership handoff)")
 check('"1000:100"' in patch, "patch script lost the pinned ownership handoff")
 check('"scoot_lock_text"' in patch or "scoot_lock_text = " in patch, "patch script lost the embedded flake.lock")
+check("rides the release tag" in patch, "patch script lost the tag-pin drift gate (rev-literal check rejects the tag)")
 check("scoot-location.conf" in patch, "patch script lost the location page config")
 check("packagechooser@scoot-location" in patch, "patch script lost the location page sequence entry")
 check("packagechooser_scoot-location" in patch, "patch script lost the location GS key read")
@@ -224,6 +235,7 @@ check("button.terminal" in config and "button.browser" in config, "template lost
 check("exec.load" in config and "exec.cpu" in config, "template lost the load/cpu exec modules")
 check("load.sh" in config and "cpu.sh" in config, "template lost the exec helper scripts")
 check("brightness" in config and "bluetooth" in config, "template lost the radial-burst-only modules")
+check("disc = false" in config, "template lost radial-burst disc = false (v0.2.1 example keeps the span off the disc)")
 check("button.welcome" not in config, "template must not carry the live-only Welcome button")
 check("button.welcome" in live, "live session lost the Welcome button")
 check("window-title" in mirror, "mirror lost the window-title bar module")
@@ -300,6 +312,7 @@ import os as _os
 # files there, so no dirname walk can reach it.
 _repo_root = repo_path
 _root_flake = open(_os.path.join(_repo_root, "flake.nix")).read()
+check(f"scoot-sh/scoot/{SCOOT_REF}" in _root_flake, "flake.nix lost the pinned scoot release tag")
 check("specialArgs" in _root_flake and "inherit scoot" in _root_flake, "flake.nix lost the mirror's scoot specialArg (greeter wallpaper)")
 check("home-manager.users.nixos" in _root_flake, "flake.nix lost the live user's home-manager imports (no launcher binds on live)")
 

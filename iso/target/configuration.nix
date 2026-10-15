@@ -243,6 +243,7 @@ let
               pill-shape = "circle";
               pill-inset = 7;
               item-gap = 4;
+              disc = false;
             };
             window-title = {
               icon = icons.app;
