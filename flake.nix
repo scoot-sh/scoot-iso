@@ -3,15 +3,15 @@
 
   # Pinned to the same nixpkgs revision as scoot itself, so the live
   # environment, the installer target, and the compositor agree on every
-  # library (scoot flake.lock: 8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe,
-  # verified 2026-10-05 against the pinned nixpkgs source).
+  # library (scoot v0.2.1 flake.lock: 8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe,
+  # verified 2026-10-15 against the release tag's pinned nixpkgs source).
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe";
-    # Pinned to scoot main at 722afd22 (2026-10-11: renderer cpu|gpu|auto
-    # with a per-session auto policy (#552), the GPU-tier seat reconnect
-    # (#551), packaged systemd user units (#553), and the runtime-gbm
-    # spike (off by default, #547)).
-    scoot.url = "github:scoot-sh/scoot/722afd22ebd7784b575713696972866bfcbea3da";
+    # Pinned to the scoot v0.2.1 release (one default build with the GPU
+    # scanout tier compiled in via a runtime gbm stub, xwayland default,
+    # Mocu as the default cursor theme, nightly retired, installer takes
+    # tagged releases only).
+    scoot.url = "github:scoot-sh/scoot/v0.2.1";
     # Pinned to home-manager master at f53f3267 (2026-10-05), for the
     # installed user's desktop-profile half.
     home-manager.url = "github:nix-community/home-manager/f53f3267f5d009dd8f99443505e609389d7ff267";

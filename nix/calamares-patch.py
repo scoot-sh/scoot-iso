@@ -220,13 +220,21 @@ def main() -> None:
         locked = lock.get("nodes", {}).get(node, {}).get("locked", {})
         if locked.get("type") != "github":
             raise SystemExit(f"target flake.lock node {node} is not a github input: {locked}")
-    for rev in (
-        lock["nodes"]["nixpkgs"]["locked"]["rev"],
-        lock["nodes"]["scoot"]["locked"]["rev"],
-        lock["nodes"]["home-manager"]["locked"]["rev"],
-    ):
+    for node in ("nixpkgs", "home-manager"):
+        rev = lock["nodes"][node]["locked"]["rev"]
         if rev not in flake_text:
             raise SystemExit(f"target flake.lock rev {rev} not in target flake.nix (re-pin drift)")
+    # The scoot input rides the release tag: flake.nix names the tag
+    # (`scoot-sh/scoot/v0.2.1`) while the lock pins the tag's commit.
+    # The drift gate is that the lock's original ref names the flake's
+    # pin and the locked rev is a real commit SHA (never a branch).
+    scoot_original = lock["nodes"]["scoot"].get("original", {})
+    scoot_ref = scoot_original.get("ref") or scoot_original.get("rev")
+    if not scoot_ref or f"scoot-sh/scoot/{scoot_ref}" not in flake_text:
+        raise SystemExit(f"target flake.nix lost the scoot pin {scoot_ref} (re-pin drift)")
+    scoot_rev = lock["nodes"]["scoot"]["locked"]["rev"]
+    if len(scoot_rev) != 40 or any(c not in "0123456789abcdef" for c in scoot_rev):
+        raise SystemExit(f"target flake.lock scoot rev {scoot_rev} is not a commit SHA (re-pin drift)")
     if '"type": "path"' in lock_text or "@@" in lock_text:
         raise SystemExit("target flake.lock must not contain path: overrides or placeholders")
 
