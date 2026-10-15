@@ -4,11 +4,11 @@
   # Pinned to the same nixpkgs revision as scoot itself, so the live
   # environment, the installer target, and the compositor agree on every
   # library (scoot v0.2.1 flake.lock: 8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe,
-  # verified 2026-10-15 against the release tag's pinned nixpkgs source).
+  # verified 2026-10-14 against the release tag's pinned nixpkgs source).
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe";
     # Pinned to the scoot v0.2.1 release (one default build with the GPU
-    # scanout tier compiled in via a runtime gbm stub, xwayland default,
+    # scanout tier compiled in via a runtime gbm stub, xwayland compiled in,
     # Mocu as the default cursor theme, nightly retired, installer takes
     # tagged releases only).
     scoot.url = "github:scoot-sh/scoot/v0.2.1";
