@@ -397,16 +397,16 @@ in
   programs.scoot = {
     enable = true;
     desktop.enable = true;
-    desktop.look = "@@SCOOT_LOOK@@";
+    look = "@@SCOOT_LOOK@@";
     session.enable = true;
     greeter.enable = true;
   };
 
   # The status bar, wearing the installed look's example layout
-  # (scootBarLayouts above, selected by the installed desktop.look).
+  # (scootBarLayouts above, selected by the installed look).
   programs.scootbar = {
     enable = true;
-    settings = scootBarLayouts.${config.programs.scoot.desktop.look} or scootBarLayouts.moonrise;
+    settings = scootBarLayouts.${config.programs.scoot.look} or scootBarLayouts.moonrise;
   };
 
 
@@ -416,7 +416,7 @@ in
   # GTK theme and accent CSS in the look's palette through nixpkgs' own
   # ReGreet options. No extra daemons: a theme package, a CSS file and
   # a background path. Everything derives from the installed
-  # desktop.look, so all four looks are themed by construction (the
+  # look, so all four looks are themed by construction (the
   # render matrix asserts each one).
   programs.scoot.greeter.background =
     let
@@ -427,11 +427,11 @@ in
         vinyl-sunset = null;
       };
     in
-    greeterWallpapers.${config.programs.scoot.desktop.look} or null;
+    greeterWallpapers.${config.programs.scoot.look} or null;
 
   services.displayManager.regreet =
     let
-      look = config.programs.scoot.desktop.look;
+      look = config.programs.scoot.look;
       dark = look != "music-desk";
       accents = {
         moonrise = "#FFA45C";

@@ -138,7 +138,7 @@ for choice, loc, variables, layout, look, nh_flake, want_user in CASES:
     for name in ("flake.nix", "configuration.nix", "flake.lock", "hardware-configuration.nix"):
         check(os.path.isfile(os.path.join(flakedir, name)), f"{tag}: missing {name}")
     config = open(os.path.join(flakedir, "configuration.nix")).read()
-    check(config.count(f'desktop.look = "{look}"') == (2 if want_user else 1),
+    check(config.count(f'look = "{look}"') == (2 if want_user else 1),
           f"{tag}: look {look} in wrong number of halves")
     check(f'flake = "{nh_flake}"' in config, f"{tag}: nh.flake {nh_flake} missing")
     check("@@" not in config, f"{tag}: leftover marker in configuration.nix")
