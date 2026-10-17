@@ -327,6 +327,13 @@ _root_flake = open(_os.path.join(_repo_root, "flake.nix")).read()
 check(f"scoot-sh/scoot/{SCOOT_REF}" in _root_flake, "flake.nix lost the pinned scoot release tag")
 check("specialArgs" in _root_flake and "inherit scoot" in _root_flake, "flake.nix lost the mirror's scoot specialArg (greeter wallpaper)")
 check("home-manager.users.nixos" in _root_flake, "flake.nix lost the live user's home-manager imports (no launcher binds on live)")
+# The installer must open from the live session: bare `sudo calamares`
+# and `pkexec calamares` abort (Qt falls back to xcb without the
+# Wayland session env; no X server on live media), so the overlay
+# passes the session display through pkexec explicitly (the welcome
+# page teaches `sudo -E`; gated below). Proved live on HVF/aarch64.
+check("WAYLAND_DISPLAY=$WAYLAND_DISPLAY" in _root_flake and "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" in _root_flake, "flake.nix lost the installer icon's Wayland env passthrough")
+check("--replace-fail" in _root_flake and 'pkexec calamares' in _root_flake, "flake.nix lost the exactly-once desktop Exec rewrite")
 
 # Every local <img src> in the welcome page must resolve inside the
 # shipped directory: either a file beside the page in iso/welcome/ or
@@ -355,6 +362,11 @@ check("box-shadow" not in _welcome_page and "linear-gradient" not in _welcome_pa
 # launcher key beside the terminal key, or a user with no terminal
 # cannot discover it.
 check("<kbd>d</kbd>" in _welcome_page, "welcome page lost the launcher key (Super+d)")
+# The terminal install path must preserve the session environment
+# (bare `sudo calamares` aborts: Qt falls back to xcb without the
+# Wayland display, and live media has no X server).
+check("sudo -E calamares" in _welcome_page, "welcome page lost the env-preserving installer command")
+check("sudo calamares" not in _welcome_page.replace("sudo -E calamares", ""), "welcome page teaches bare sudo calamares (aborts on live media)")
 
 # Live session seeds the welcome browser's profile (Firefox's
 # default-profile auto-creation fails on live media: "Profile Missing").
