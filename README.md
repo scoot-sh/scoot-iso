@@ -173,7 +173,7 @@ page (a second packagechooser page carried by the same patch):
 
 ```nix
 # ~/nixos-config/configuration.nix, after installing:
-programs.scoot.desktop.look = "music-desk";
+programs.scoot.look = "music-desk";
 # ... and the home-manager user half in the same file, then:
 # nh os switch
 ```
@@ -204,15 +204,15 @@ On an installed system, set the look in both halves and rebuild:
 
 ```nix
 # /etc/nixos/configuration.nix (system half):
-programs.scoot.desktop.look = "music-desk";
+programs.scoot.look = "music-desk";
 # ... and the home-manager user half in the same file:
-home-manager.users."<you>".programs.scoot.desktop.look = "music-desk";
+home-manager.users."<you>".programs.scoot.look = "music-desk";
 # then:
 nixos-rebuild switch --flake /etc/nixos#scoot
 ```
 
 To build an ISO whose live session wears another look, change
-`nix/live.nix` in two places: `programs.scoot.desktop.look` (the system
+`nix/live.nix` in two places: `programs.scoot.look` (the system
 half and the live user's home-manager half), and the live bar layout
 (`liveBar`: bar colors plus the workspaces inactive color), which repeats
 the look's values by hand. The welcome page names the look in two places

@@ -273,7 +273,7 @@ in
       enable = true;
       package = scootPkgs.scoot;
       desktop.enable = true;
-      desktop.look = "ginger-night";
+      look = "ginger-night";
       session.enable = true;
       # The installed system keeps the profile's idle policy (dim, lock,
       # screens off: a laptop that never locks is not daily-drivable),
@@ -304,7 +304,7 @@ in
     home-manager.users.nixos.programs.scoot = {
       enable = true;
       desktop.enable = true;
-      desktop.look = "ginger-night";
+      look = "ginger-night";
       settings.autostart.commands = liveAutostart;
       desktop.idle.enable = false;
       desktop.idle.lock.enable = false;

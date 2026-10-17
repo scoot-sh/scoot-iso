@@ -84,11 +84,11 @@ HM_USER_STANZA = """\
   home-manager.users."@@username@@".programs.scoot = {
     enable = true;
     desktop.enable = true;
-    desktop.look = "@@SCOOT_LOOK@@";
+    look = "@@SCOOT_LOOK@@";
   };
   home-manager.users."@@username@@".programs.scootbar.enable = true;
   # The installed bar draws the look's example layout (scootBarLayouts
-  # in configuration.nix, selected by the installed desktop.look, the
+  # in configuration.nix, selected by the installed look, the
   # same expression the system half uses), whichever unit the session
   # starts: without this, the home unit's empty config shadows the
   # system unit (same unit name, home wins) and the installed desktop
@@ -96,7 +96,7 @@ HM_USER_STANZA = """\
   # stays off, so exactly one daemon runs: the system one, whose
   # config names /etc/scootbar/bar.toml explicitly.
   home-manager.users."@@username@@".programs.scootbar.settings =
-    scootBarLayouts.${config.programs.scoot.desktop.look} or scootBarLayouts.moonrise;
+    scootBarLayouts.${config.programs.scoot.look} or scootBarLayouts.moonrise;
   home-manager.users."@@username@@".programs.scootbar.systemd.enable = false;
   home-manager.users."@@username@@".home.stateVersion = "25.11";
 """
@@ -225,7 +225,7 @@ def main() -> None:
         if rev not in flake_text:
             raise SystemExit(f"target flake.lock rev {rev} not in target flake.nix (re-pin drift)")
     # The scoot input rides the release tag: flake.nix names the tag
-    # (`scoot-sh/scoot/v0.2.1`) while the lock pins the tag's commit.
+    # (`scoot-sh/scoot/v0.3.0`) while the lock pins the tag's commit.
     # The drift gate is that the lock's original ref names the flake's
     # pin and the locked rev is a real commit SHA (never a branch).
     scoot_original = lock["nodes"]["scoot"].get("original", {})
