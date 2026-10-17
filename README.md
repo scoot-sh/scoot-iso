@@ -97,7 +97,7 @@ Boot the stick in UEFI mode.
 Connect to the network (a cable, or Wi-Fi with `nmtui` in a terminal)
 before you start the installer. Calamares checks for it on its first
 page and will not go past that page without it. This holds for the
-**Install** icon and for `sudo calamares` alike.
+**Install** icon and for `sudo -E calamares` alike.
 
 The install uses the normal substituters (cache.nixos.org plus the
 scoot Cachix the installed config trusts), so real hardware, whose kernel modules,
