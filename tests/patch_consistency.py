@@ -33,14 +33,14 @@ ci = open(ci_path).read()
 
 NIXPKGS_REV = "8ce4ef6cb6f871616146b9fe26d2a5ae594e94fe"
 # The scoot input rides the release tag (flake.nix names the tag); the
-# lock pins the tag's commit. nixpkgs needs no re-sync: v0.2.1's own
+# lock pins the tag's commit. nixpkgs needs no re-sync: v0.3.0's own
 # flake.lock names this same nixpkgs rev.
-SCOOT_REF = "v0.2.1"
-SCOOT_REV = "cf497e3b6351a47456fc58e4c14ef6d6dc114bd0"
+SCOOT_REF = "v0.3.0"
+SCOOT_REV = "3a798fe287fc11680815a658123e45d8d48c5845"
 HM_REV = "f53f3267f5d009dd8f99443505e609389d7ff267"
 CACHIX_URL = "https://scoot-sh.cachix.org"
 CACHIX_KEY = "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
-LOOK = 'desktop.look = "moonrise"'
+LOOK = 'look = "moonrise"'
 LOOK_MARKER = "@@SCOOT_LOOK@@"
 SCOOT_IDS = [
     "scoot-moonrise",
@@ -71,7 +71,7 @@ for _node in ("nixpkgs", "home-manager"):
 # The scoot input rides the release tag, so its lock rev is the tag's
 # commit rather than a literal line in flake.nix.
 check(lock_data["nodes"]["scoot"]["locked"]["rev"] == SCOOT_REV,
-      "target flake.lock scoot rev is not the v0.2.1 commit")
+      "target flake.lock scoot rev is not the v0.3.0 commit")
 check('"type": "path"' not in lock, "target flake.lock must not contain path: overrides")
 check("@@" not in lock, "target flake.lock must not contain placeholders")
 
@@ -106,7 +106,7 @@ for marker in ("@@TIMEZONE@@", "@@LOCALE@@", "@@SCOOT_USERS@@", "@@SCOOT_HM_USER
 # the home-manager half lives in the patch stanza, also as the marker);
 # the mirror resolves both halves inline to moonrise.
 check(config.count(LOOK_MARKER) == 1, "target configuration.nix should hold @@SCOOT_LOOK@@ exactly once")
-check(config.count("desktop.look = ") == 1, "target configuration.nix should hold one desktop.look line (the marker)")
+check(config.count(f'look = "{LOOK_MARKER}"') == 1, "target configuration.nix should hold one look line (the marker)")
 check(LOOK in mirror, "mirror lost the look")
 check("inputs.scoot.homeModules.scoot" in patch and LOOK_MARKER in patch, "patch HM stanza lost the look marker")
 check(mirror.count(LOOK) == 2, "mirror should hold the look twice (system + user)")
@@ -155,6 +155,18 @@ check("could not be evaluated from the ISO" in patch, "patch script lost the eva
 check('startswith("/nix/store/")' in patch, "patch script lost the store-path-only closure parse (warnings must not pollute it)")
 check("scoot install needs the network" in patch, "patch script lost the offline-refusal title")
 check("Connect to the network" in patch, "patch script lost the connect-to-the-network message")
+# Closure presence is symlink-aware (lexists, not exists): since scoot
+# v0.3.0 the target closure carries home-manager out-of-store symlinks
+# (the wob look leaf's hm_wob.ini), which dangle until the first look
+# sync renders their target. exists() follows the link and misreports
+# the shipped file as missing, refusing an install the ISO could do.
+check("out-of-store" in patch, "patch script lost the out-of-store rationale for the symlink-aware presence check")
+check("os.path.lexists(p)" in patch, "patch script lost lexists in the pre-flight closure check (dangling out-of-store links misreport as missing)")
+check("os.path.lexists(_scoot_out)" in patch, "patch script lost lexists in the missing-path enrichment (dangling out-of-store links misreport as missing)")
+check("out-of-store" in qemu, "qemu-test lost the out-of-store rationale for the symlink-aware presence checks")
+check("os.path.lexists(p)" in qemu, "qemu-test lost lexists in the phase-2a pre-flight (dangling out-of-store links misreport as missing)")
+check("os.path.lexists(out)" in qemu, "qemu-test lost lexists in the phase-2a enrichment (dangling out-of-store links misreport as missing)")
+check(qemu.count('[ -L \\"\\$p\\" ]') == 2, "qemu-test presence loops lost the -L symlink arm (phase 2b pre-flight and tweak-have)")
 # The graphical install needs the network (welcome.conf requires
 # internet, asserted by the patch), and a GUI install never matches the
 # shipped canonical closure. The refusal therefore says what already
@@ -235,7 +247,7 @@ check("button.terminal" in config and "button.browser" in config, "template lost
 check("exec.load" in config and "exec.cpu" in config, "template lost the load/cpu exec modules")
 check("load.sh" in config and "cpu.sh" in config, "template lost the exec helper scripts")
 check("brightness" in config and "bluetooth" in config, "template lost the radial-burst-only modules")
-check("disc = false" in config, "template lost radial-burst disc = false (v0.2.1 example keeps the span off the disc)")
+check("disc = false" in config, "template lost radial-burst disc = false (v0.3.0 example keeps the span off the disc)")
 check("button.welcome" not in config, "template must not carry the live-only Welcome button")
 check("button.welcome" in live, "live session lost the Welcome button")
 check("window-title" in mirror, "mirror lost the window-title bar module")
@@ -315,6 +327,13 @@ _root_flake = open(_os.path.join(_repo_root, "flake.nix")).read()
 check(f"scoot-sh/scoot/{SCOOT_REF}" in _root_flake, "flake.nix lost the pinned scoot release tag")
 check("specialArgs" in _root_flake and "inherit scoot" in _root_flake, "flake.nix lost the mirror's scoot specialArg (greeter wallpaper)")
 check("home-manager.users.nixos" in _root_flake, "flake.nix lost the live user's home-manager imports (no launcher binds on live)")
+# The installer must open from the live session: bare `sudo calamares`
+# and `pkexec calamares` abort (Qt falls back to xcb without the
+# Wayland session env; no X server on live media), so the overlay
+# passes the session display through pkexec explicitly (the welcome
+# page teaches `sudo -E`; gated below). Proved live on HVF/aarch64.
+check("WAYLAND_DISPLAY=$WAYLAND_DISPLAY" in _root_flake and "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR" in _root_flake, "flake.nix lost the installer icon's Wayland env passthrough")
+check("--replace-fail" in _root_flake and 'pkexec calamares' in _root_flake, "flake.nix lost the exactly-once desktop Exec rewrite")
 
 # Every local <img src> in the welcome page must resolve inside the
 # shipped directory: either a file beside the page in iso/welcome/ or
@@ -343,6 +362,11 @@ check("box-shadow" not in _welcome_page and "linear-gradient" not in _welcome_pa
 # launcher key beside the terminal key, or a user with no terminal
 # cannot discover it.
 check("<kbd>d</kbd>" in _welcome_page, "welcome page lost the launcher key (Super+d)")
+# The terminal install path must preserve the session environment
+# (bare `sudo calamares` aborts: Qt falls back to xcb without the
+# Wayland display, and live media has no X server).
+check("sudo -E calamares" in _welcome_page, "welcome page lost the env-preserving installer command")
+check("sudo calamares" not in _welcome_page.replace("sudo -E calamares", ""), "welcome page teaches bare sudo calamares (aborts on live media)")
 
 # Live session seeds the welcome browser's profile (Firefox's
 # default-profile auto-creation fails on live media: "Profile Missing").
