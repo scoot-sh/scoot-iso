@@ -493,7 +493,10 @@ print('TWEAK-DIFFERS-OK')
 def preflight(dest, topo):
     r = sh(['nix', 'path-info', '-r', '--offline', topo])
     if r.returncode == 0:
-        return [p for p in r.stdout.split() if not os.path.exists(p)]
+        # lexists, not exists: the v0.3.0 wob look leaf ships a
+        # home-manager out-of-store symlink (hm_wob.ini) that dangles
+        # until the first look sync renders its target.
+        return [p for p in r.stdout.split() if not os.path.lexists(p)]
     missing = [topo]
     try:
         dry = sh(['nix', 'build', '--dry-run', '--offline', '--option', 'substitute', 'false', '--no-link', dest + '#nixosConfigurations.scoot.config.system.build.toplevel'], timeout=300)
@@ -503,7 +506,7 @@ def preflight(dest, topo):
                 try:
                     show = sh(['nix', 'derivation', 'show', line], timeout=120)
                     for out in re.findall(r'/nix/store/[a-z0-9]+-[^\"\\s]+', show.stdout or ''):
-                        if out not in missing and not os.path.exists(out):
+                        if out not in missing and not os.path.lexists(out):
                             missing.append(out)
                 except Exception:
                     pass
@@ -627,7 +630,10 @@ echo EVAL-OFFLINE-OK
 echo '--- pre-flight: the target closure must already ride the ISO ---'
 topo=\$(nix eval --offline --option substitute false --no-write-lock-file --raw '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel') && echo \"TOPLEVEL: \$topo\"
 closure=\$(nix path-info -r --offline \"\$topo\") || { echo CLOSURE-PREFLIGHT-FAIL: target not on the ISO >&2; exit 1; }
-missing=\$(for p in \$closure; do [ -e \"\$p\" ] || echo \"\$p\"; done)
+# -L beside -e: the v0.3.0 wob look leaf ships a home-manager
+# out-of-store symlink (hm_wob.ini) that dangles until the first look
+# sync; -e follows it and reports the shipped link missing.
+missing=\$(for p in \$closure; do [ -e \"\$p\" ] || [ -L \"\$p\" ] || echo \"\$p\"; done)
 [ -z \"\$missing\" ] || { echo \"OFFLINE-CLOSURE-INCOMPLETE: \$missing\" >&2; exit 1; }
 echo CLOSURE-PREFLIGHT-OK
 echo '--- archive: the build fetches flake inputs into the build store, which starts empty ---'
@@ -953,7 +959,9 @@ echo \"pre-copying what the ISO already ships (the tweak delta comes over the ne
 tweak_drv=\$(nix eval --no-write-lock-file --raw '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel.drvPath')
 nix-store --query --requisites --include-outputs \"\$tweak_drv\" 2>/dev/null | grep -v '\.drv\$' > /tmp/tweak-wanted.txt || true
 : > /tmp/tweak-have.txt
-while read -r p; do [ -e \"\$p\" ] && echo \"\$p\" >> /tmp/tweak-have.txt; done < /tmp/tweak-wanted.txt
+# -L beside -e, as in the canonical pre-flight above: the tweak closure
+# carries the same dangling out-of-store wob symlink.
+while read -r p; do [ -e \"\$p\" ] || [ -L \"\$p\" ] && echo \"\$p\" >> /tmp/tweak-have.txt; done < /tmp/tweak-wanted.txt
 wc -l /tmp/tweak-wanted.txt /tmp/tweak-have.txt
 xargs -a /tmp/tweak-have.txt nix copy --to /mnt --no-check-sigs && echo TWEAK-PRECOPY-OK || echo TWEAK-PRECOPY-SKIP
 rc=0

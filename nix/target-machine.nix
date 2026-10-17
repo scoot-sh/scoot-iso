@@ -199,7 +199,7 @@ in
   programs.scoot = {
     enable = true;
     desktop.enable = true;
-    desktop.look = "moonrise";
+    look = "moonrise";
     session.enable = true;
     greeter.enable = true;
   };
@@ -225,11 +225,11 @@ in
         vinyl-sunset = null;
       };
     in
-    greeterWallpapers.${config.programs.scoot.desktop.look} or null;
+    greeterWallpapers.${config.programs.scoot.look} or null;
 
   services.displayManager.regreet =
     let
-      look = config.programs.scoot.desktop.look;
+      look = config.programs.scoot.look;
       dark = look != "music-desk";
       accents = {
         moonrise = "#FFA45C";
@@ -254,7 +254,7 @@ in
   home-manager.users.scoot.programs.scoot = {
     enable = true;
     desktop.enable = true;
-    desktop.look = "moonrise";
+    look = "moonrise";
   };
   # The installed bar draws the moonrise example layout (the same
   # moonrise block the system half uses above), whichever unit the
