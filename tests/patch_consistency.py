@@ -155,6 +155,18 @@ check("could not be evaluated from the ISO" in patch, "patch script lost the eva
 check('startswith("/nix/store/")' in patch, "patch script lost the store-path-only closure parse (warnings must not pollute it)")
 check("scoot install needs the network" in patch, "patch script lost the offline-refusal title")
 check("Connect to the network" in patch, "patch script lost the connect-to-the-network message")
+# Closure presence is symlink-aware (lexists, not exists): since scoot
+# v0.3.0 the target closure carries home-manager out-of-store symlinks
+# (the wob look leaf's hm_wob.ini), which dangle until the first look
+# sync renders their target. exists() follows the link and misreports
+# the shipped file as missing, refusing an install the ISO could do.
+check("out-of-store" in patch, "patch script lost the out-of-store rationale for the symlink-aware presence check")
+check("os.path.lexists(p)" in patch, "patch script lost lexists in the pre-flight closure check (dangling out-of-store links misreport as missing)")
+check("os.path.lexists(_scoot_out)" in patch, "patch script lost lexists in the missing-path enrichment (dangling out-of-store links misreport as missing)")
+check("out-of-store" in qemu, "qemu-test lost the out-of-store rationale for the symlink-aware presence checks")
+check("os.path.lexists(p)" in qemu, "qemu-test lost lexists in the phase-2a pre-flight (dangling out-of-store links misreport as missing)")
+check("os.path.lexists(out)" in qemu, "qemu-test lost lexists in the phase-2a enrichment (dangling out-of-store links misreport as missing)")
+check(qemu.count('[ -L \\"\\$p\\" ]') == 2, "qemu-test presence loops lost the -L symlink arm (phase 2b pre-flight and tweak-have)")
 # The graphical install needs the network (welcome.conf requires
 # internet, asserted by the patch), and a GUI install never matches the
 # shipped canonical closure. The refusal therefore says what already

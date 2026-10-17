@@ -428,6 +428,12 @@ def main() -> None:
     # then the disk is partitioned and mounted and the configs above
     # are written, but nothing is in the target store, so the message
     # says exactly that and sends the user back to the start.
+    # The offline pre-flight below checks closure presence with lexists,
+    # not exists: since scoot v0.3.0 the target closure carries
+    # home-manager out-of-store symlinks (the wob look leaf's hm_wob.ini),
+    # which point at the login-time look state and dangle until the first
+    # `scoot look sync`. exists() follows the link and reports the shipped
+    # file missing; lexists() sees the shipped link itself.
     anchor_cmd = (
         '            "--option",\n'
         '            "build-dir",\n'
@@ -480,7 +486,7 @@ def main() -> None:
         + '                if _scoot_pi.returncode != 0:\n'
         + '                    raise subprocess.CalledProcessError(_scoot_pi.returncode, "nix path-info")\n'
         + '                scoot_closure = [p for p in _scoot_pi.stdout.split() if p.startswith("/nix/store/")]\n'
-        + '                scoot_missing = [p for p in scoot_closure if not os.path.exists(p)]\n'
+        + '                scoot_missing = [p for p in scoot_closure if not os.path.lexists(p)]\n'
         + '            except subprocess.CalledProcessError:\n'
         + '                scoot_missing = [scoot_toplevel]\n'
         + '                try:\n'
@@ -491,7 +497,7 @@ def main() -> None:
         + '                            try:\n'
         + '                                _scoot_show = subprocess.run(["nix", "derivation", "show", _scoot_line], capture_output=True, text=True, timeout=120)\n'
         + '                                for _scoot_out in re.findall(r"/nix/store/[a-z0-9]+-[^\\"\\s]+", _scoot_show.stdout or ""):\n'
-        + '                                    if _scoot_out not in scoot_missing and not os.path.exists(_scoot_out):\n'
+        + '                                    if _scoot_out not in scoot_missing and not os.path.lexists(_scoot_out):\n'
         + '                                        scoot_missing.append(_scoot_out)\n'
         + '                            except Exception:\n'
         + '                                pass\n'
