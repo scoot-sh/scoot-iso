@@ -94,6 +94,22 @@
             prev.calamares-nixos-extensions.overrideAttrs (_old: {
               src = patchedSrc + "/src";
             });
+          # The Install entry must survive pkexec's environment scrub
+          # on the Wayland-only live session: without WAYLAND_DISPLAY
+          # Qt falls back to xcb and aborts (no X server on live
+          # media), so the icon and any bare `sudo calamares` never
+          # open. --replace-fail keeps this exactly-once: an upstream
+          # Exec change fails the build instead of silently restoring
+          # the abort. (The terminal path keeps working through
+          # `sudo -E`; see the welcome page.)
+          calamares =
+            prev.calamares.overrideAttrs (old: {
+              postInstall = (old.postInstall or "") + ''
+                substituteInPlace $out/share/applications/calamares.desktop \
+                  --replace-fail 'Exec=sh -c "pkexec calamares"' \
+                  'Exec=sh -c "pkexec env DISPLAY=$DISPLAY WAYLAND_DISPLAY=$WAYLAND_DISPLAY XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR calamares"'
+              '';
+            });
         };
       calamaresFor = system: mkPatchedExtSrc nixpkgs.legacyPackages.${system} system;
     in
