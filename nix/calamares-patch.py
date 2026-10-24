@@ -225,7 +225,7 @@ def main() -> None:
         if rev not in flake_text:
             raise SystemExit(f"target flake.lock rev {rev} not in target flake.nix (re-pin drift)")
     # The scoot input rides the release tag: flake.nix names the tag
-    # (`scoot-sh/scoot/v0.3.0`) while the lock pins the tag's commit.
+    # (`scoot-sh/scoot/v0.6.0`) while the lock pins the tag's commit.
     # The drift gate is that the lock's original ref names the flake's
     # pin and the locked rev is a real commit SHA (never a branch).
     scoot_original = lock["nodes"]["scoot"].get("original", {})
@@ -429,8 +429,8 @@ def main() -> None:
     # are written, but nothing is in the target store, so the message
     # says exactly that and sends the user back to the start.
     # The offline pre-flight below checks closure presence with lexists,
-    # not exists: since scoot v0.3.0 the target closure carries
-    # home-manager out-of-store symlinks (the wob look leaf's hm_wob.ini),
+    # not exists: since scoot v0.6.0 the target closure carries
+    # home-manager out-of-store symlinks (the wob look leaf's wob.ini),
     # which point at the login-time look state and dangle until the first
     # `scoot look sync`. exists() follows the link and reports the shipped
     # file missing; lexists() sees the shipped link itself.

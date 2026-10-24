@@ -341,11 +341,12 @@ echo "--- exactly one live bar daemon ---"
 bars=$(pgrep -c -u nixos -x scootbar || true)
 [ "$bars" = 1 ] && echo LIVE-BAR-PROC-OK || { echo "LIVE-BAR-PROC-FAIL: $bars scootbar daemons (want exactly 1)"; fail=1; }
 echo "--- launcher and terminal installed ---"
-# fuzzel rides the system PATH; the themed scoot-launcher wrapper lives
+# scootlaunch rides the system PATH via the desktop profile (the default
+# daemon since scoot v0.6.0); the themed scoot-launcher wrapper lives
 # in the store and is named by absolute path in the compositor binds
 # (home packages are not on the bare PATH this probe runs with), so its
 # presence is read off the generated config, not `command -v`.
-command -v fuzzel >/dev/null && grep -q "scoot-launcher" /home/nixos/.config/scoot/config.toml && echo LIVE-LAUNCHER-BIN-OK || { echo LIVE-LAUNCHER-BIN-FAIL; fail=1; }
+command -v scootlaunch >/dev/null && grep -q "scoot-launcher" /home/nixos/.config/scoot/config.toml && echo LIVE-LAUNCHER-BIN-OK || { echo LIVE-LAUNCHER-BIN-FAIL; fail=1; }
 command -v foot >/dev/null && echo LIVE-TERMINAL-BIN-OK || { echo LIVE-TERMINAL-BIN-FAIL; fail=1; }
 [ "$fail" = 0 ] && echo LIVE-DESKTOP-OK
 exit $fail
@@ -493,8 +494,8 @@ print('TWEAK-DIFFERS-OK')
 def preflight(dest, topo):
     r = sh(['nix', 'path-info', '-r', '--offline', topo])
     if r.returncode == 0:
-        # lexists, not exists: the v0.3.0 wob look leaf ships a
-        # home-manager out-of-store symlink (hm_wob.ini) that dangles
+        # lexists, not exists: the v0.6.0 wob look leaf ships a
+        # home-manager out-of-store symlink (wob.ini) that dangles
         # until the first look sync renders its target.
         return [p for p in r.stdout.split() if not os.path.lexists(p)]
     missing = [topo]
@@ -630,8 +631,8 @@ echo EVAL-OFFLINE-OK
 echo '--- pre-flight: the target closure must already ride the ISO ---'
 topo=\$(nix eval --offline --option substitute false --no-write-lock-file --raw '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel') && echo \"TOPLEVEL: \$topo\"
 closure=\$(nix path-info -r --offline \"\$topo\") || { echo CLOSURE-PREFLIGHT-FAIL: target not on the ISO >&2; exit 1; }
-# -L beside -e: the v0.3.0 wob look leaf ships a home-manager
-# out-of-store symlink (hm_wob.ini) that dangles until the first look
+# -L beside -e: the v0.6.0 wob look leaf ships a home-manager
+# out-of-store symlink (wob.ini) that dangles until the first look
 # sync; -e follows it and reports the shipped link missing.
 missing=\$(for p in \$closure; do [ -e \"\$p\" ] || [ -L \"\$p\" ] || echo \"\$p\"; done)
 [ -z \"\$missing\" ] || { echo \"OFFLINE-CLOSURE-INCOMPLETE: \$missing\" >&2; exit 1; }
