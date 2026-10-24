@@ -202,6 +202,8 @@ in
     look = "moonrise";
     session.enable = true;
     greeter.enable = true;
+    desktop.apps.editor.default = "nvim";
+    desktop.theme.targets.editor.nvim.enable = true;
   };
 
   # The status bar: the moonrise example layout
@@ -255,6 +257,8 @@ in
     enable = true;
     desktop.enable = true;
     look = "moonrise";
+    desktop.apps.editor.default = "nvim";
+    desktop.theme.targets.editor.nvim.enable = true;
   };
   # The installed bar draws the moonrise example layout (the same
   # moonrise block the system half uses above), whichever unit the

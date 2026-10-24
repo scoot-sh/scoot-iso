@@ -400,6 +400,8 @@ in
     look = "@@SCOOT_LOOK@@";
     session.enable = true;
     greeter.enable = true;
+    desktop.apps.editor.default = "nvim";
+    desktop.theme.targets.editor.nvim.enable = true;
   };
 
   # The status bar, wearing the installed look's example layout
