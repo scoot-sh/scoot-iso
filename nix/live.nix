@@ -285,6 +285,11 @@ in
       desktop.idle.enable = false;
       desktop.idle.lock.enable = false;
       desktop.idle.mediaInhibit.enable = false;
+      # nvim as the default editor (look-themed colorscheme via the
+      # theme target below): EDITOR/VISUAL and the text association
+      # agree on the live session, like the installed target.
+      desktop.apps.editor.default = "nvim";
+      desktop.theme.targets.editor.nvim.enable = true;
     };
     programs.scootbar = {
       enable = true;
@@ -309,6 +314,8 @@ in
       desktop.idle.enable = false;
       desktop.idle.lock.enable = false;
       desktop.idle.mediaInhibit.enable = false;
+      desktop.apps.editor.default = "nvim";
+      desktop.theme.targets.editor.nvim.enable = true;
     };
     # The live bar draws the same layout whichever unit the session
     # starts; the home unit itself stays off, so exactly one daemon

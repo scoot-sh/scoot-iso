@@ -85,6 +85,8 @@ HM_USER_STANZA = """\
     enable = true;
     desktop.enable = true;
     look = "@@SCOOT_LOOK@@";
+    desktop.apps.editor.default = "nvim";
+    desktop.theme.targets.editor.nvim.enable = true;
   };
   home-manager.users."@@username@@".programs.scootbar.enable = true;
   # The installed bar draws the look's example layout (scootBarLayouts
@@ -225,7 +227,7 @@ def main() -> None:
         if rev not in flake_text:
             raise SystemExit(f"target flake.lock rev {rev} not in target flake.nix (re-pin drift)")
     # The scoot input rides the release tag: flake.nix names the tag
-    # (`scoot-sh/scoot/v0.6.0`) while the lock pins the tag's commit.
+    # (`scoot-sh/scoot/v0.6.2`) while the lock pins the tag's commit.
     # The drift gate is that the lock's original ref names the flake's
     # pin and the locked rev is a real commit SHA (never a branch).
     scoot_original = lock["nodes"]["scoot"].get("original", {})

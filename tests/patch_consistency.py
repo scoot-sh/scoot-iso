@@ -33,10 +33,10 @@ ci = open(ci_path).read()
 
 NIXPKGS_REV = "02c087f3fe673c9e317f206a627cb6b910336dbe"
 # The scoot input rides the release tag (flake.nix names the tag); the
-# lock pins the tag's commit. nixpkgs needs no re-sync: v0.6.0's own
+# lock pins the tag's commit. nixpkgs needs no re-sync: v0.6.2's own
 # flake.lock names this same nixpkgs rev.
-SCOOT_REF = "v0.6.0"
-SCOOT_REV = "0f57082a8b2cdf2e06d00a21a7066bb38a334406"
+SCOOT_REF = "v0.6.2"
+SCOOT_REV = "8cb6ba21ac4e52bd0cf35c6ad81cd5fc33ed7eb9"
 HM_REV = "f53f3267f5d009dd8f99443505e609389d7ff267"
 CACHIX_URL = "https://scoot-sh.cachix.org"
 CACHIX_KEY = "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
@@ -71,7 +71,7 @@ for _node in ("nixpkgs", "home-manager"):
 # The scoot input rides the release tag, so its lock rev is the tag's
 # commit rather than a literal line in flake.nix.
 check(lock_data["nodes"]["scoot"]["locked"]["rev"] == SCOOT_REV,
-      "target flake.lock scoot rev is not the v0.6.0 commit")
+      "target flake.lock scoot rev is not the v0.6.2 commit")
 check('"type": "path"' not in lock, "target flake.lock must not contain path: overrides")
 check("@@" not in lock, "target flake.lock must not contain placeholders")
 
@@ -110,6 +110,17 @@ check(config.count(f'look = "{LOOK_MARKER}"') == 1, "target configuration.nix sh
 check(LOOK in mirror, "mirror lost the look")
 check("inputs.scoot.homeModules.scoot" in patch and LOOK_MARKER in patch, "patch HM stanza lost the look marker")
 check(mirror.count(LOOK) == 2, "mirror should hold the look twice (system + user)")
+# nvim as the default editor everywhere (live + installed): the
+# template carries one system half, the patch stanza the user half,
+# the mirror and live each resolve both halves inline.
+check('desktop.apps.editor.default = "nvim"' in config, "target configuration.nix lost editor.default nvim")
+check('desktop.theme.targets.editor.nvim.enable = true' in config, "target configuration.nix lost theme.targets.editor.nvim.enable")
+check('desktop.apps.editor.default = "nvim"' in patch, "patch HM stanza lost editor.default nvim")
+check('desktop.theme.targets.editor.nvim.enable = true' in patch, "patch HM stanza lost theme.targets.editor.nvim.enable")
+check(mirror.count('desktop.apps.editor.default = "nvim"') == 2, "mirror should hold editor.default nvim twice (system + user)")
+check(mirror.count('desktop.theme.targets.editor.nvim.enable = true') == 2, "mirror should hold nvim.enable twice (system + user)")
+check(live.count('desktop.apps.editor.default = "nvim"') == 2, "live session should hold editor.default nvim twice (system + user)")
+check(live.count('desktop.theme.targets.editor.nvim.enable = true') == 2, "live session should hold nvim.enable twice (system + user)")
 check(CACHIX_URL in mirror and CACHIX_KEY in mirror, "mirror lost the Cachix substituter")
 check("greeter.enable = true" in mirror, "mirror lost greeter.enable")
 check("session.enable = true" in mirror, "mirror lost session.enable")
