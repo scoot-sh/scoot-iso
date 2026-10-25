@@ -1,0 +1,89 @@
+# Move this repo's scoot pin to a release tag. Run it by hand:
+#
+#   gh workflow run bump-scoot.yml -R scoot-sh/<this repo> -f tag=vX.Y.Z
+#
+# WHAT IT DOES: runs scoot's own `scripts/bump-downstream` (taken from
+# the tag being bumped to) against this checkout, pushes the branch
+# `ci/bump-scoot-<tag>` and opens or updates one PR. It never merges.
+#
+# WHY IT DISPATCHES CI ITSELF: a PR opened with GITHUB_TOKEN starts no
+# `pull_request` run (GitHub does not let GITHUB_TOKEN events start
+# workflows, except workflow_dispatch). So the last step dispatches
+# ci.yml on the branch; its checks attach to the PR head commit like any
+# other. No secret or personal token is needed.
+
+name: bump scoot
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Scoot release tag to pin to (vX.Y.Z)'
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: bump-scoot-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: The tag must be a plain release
+        env:
+          BUMP_TAG: ${{ inputs.tag }}
+        run: |
+          if ! printf '%s' "$BUMP_TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "::error title=Not a release tag::$BUMP_TAG is not vX.Y.Z."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: downstream
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: scoot-sh/scoot
+          ref: ${{ inputs.tag }}
+          path: scoot
+          persist-credentials: false
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Bump the pin
+        env:
+          BUMP_TAG: ${{ inputs.tag }}
+        run: |
+          ./scoot/scripts/bump-downstream downstream "$BUMP_TAG"
+
+      - name: Open or update the PR, then dispatch its CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUMP_TAG: ${{ inputs.tag }}
+        run: |
+          branch="ci/bump-scoot-$BUMP_TAG"
+          cd downstream
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "::notice title=Already current::This repo already pins $BUMP_TAG; nothing to open."
+            exit 0
+          fi
+          git checkout -B "$branch"
+          git add -A
+          git -c user.name=github-actions -c user.email=github-actions@users.noreply.github.com \
+            commit --quiet -m "chore: bump scoot pin to $BUMP_TAG"
+          git push --quiet --force origin "HEAD:$branch"
+          title="chore: bump scoot pin to $BUMP_TAG"
+          body="Bump the scoot pin to $BUMP_TAG (scoot-sh/scoot release), done by scripts/bump-downstream from that tag. Review the lock diff before merging."
+          if gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr edit "$branch" --title "$title" --body "$body"
+          else
+            gh pr create --head "$branch" --base main --title "$title" --body "$body"
+          fi
+          gh workflow run ci.yml --ref "$branch"
