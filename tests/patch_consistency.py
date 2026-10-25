@@ -71,7 +71,7 @@ for _node in ("nixpkgs", "home-manager"):
 # The scoot input rides the release tag, so its lock rev is the tag's
 # commit rather than a literal line in flake.nix.
 check(lock_data["nodes"]["scoot"]["locked"]["rev"] == SCOOT_REV,
-      "target flake.lock scoot rev is not the v0.6.2 commit")
+      f"target flake.lock scoot rev is not the {SCOOT_REF} commit")
 check('"type": "path"' not in lock, "target flake.lock must not contain path: overrides")
 check("@@" not in lock, "target flake.lock must not contain placeholders")
 
