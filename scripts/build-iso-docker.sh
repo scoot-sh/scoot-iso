@@ -25,9 +25,6 @@
 #   ISO_PLATFORM  docker --platform (default: native)
 #   ISO_DOCKER_IMAGE  full image ref override (default: pinned digest
 #               for the native arch)
-#   ISO_DOCKER_SECCOMP_UNCONFINED  1 runs the container without Docker's
-#               seccomp profile (CI only: lets keyring tests in the
-#               closure call keyctl; default off)
 #   --check     instead of the ISO, run `nix flake check` in the image
 #               (fast plumbing validation for CI and first-time setup)
 #
@@ -71,17 +68,6 @@ IMAGE="${ISO_DOCKER_IMAGE:-nixos/nix@$DIGEST}"
 
 PLATFORM_ARG=""
 if [ -n "$PLATFORM" ]; then PLATFORM_ARG="--platform $PLATFORM"; fi
-
-# Docker's default seccomp profile refuses keyctl(2) with EPERM, and
-# packages in the closure run keyring tests in their check phase (the
-# udiskie 2.7.0 suite fails 13 tests on it). Opt-in only, for CI's
-# throwaway runner: ISO_DOCKER_SECCOMP_UNCONFINED=1 runs the build
-# container without Docker's seccomp profile. Off by default, so a local
-# build keeps Docker's filter. Nix's own build filter (filter-syscalls) is
-# separate and unaffected.
-if [ "${ISO_DOCKER_SECCOMP_UNCONFINED:-0}" = 1 ]; then
-  PLATFORM_ARG="$PLATFORM_ARG --security-opt seccomp=unconfined"
-fi
 
 # A foreign platform runs emulated, and emulation cannot load the
 # seccomp BPF program Nix installs around every build: under Docker
