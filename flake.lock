@@ -82,16 +82,16 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1793071385,
-        "narHash": "sha256-y+yn8+5lpoydKzcCAg/4hdeFcYrRF2HefAwfxejVZgU=",
+        "lastModified": 1793085719,
+        "narHash": "sha256-UFbcShBdRkFByhw76UJpofDnmeQMLyZMXIWnM1tdwEY=",
         "owner": "scoot-sh",
         "repo": "scoot",
-        "rev": "709da67d9d11c4103513c713113d8470cf4d09f1",
+        "rev": "597b4a963a996a1840c86a48f6bd324774e9adf5",
         "type": "github"
       },
       "original": {
         "owner": "scoot-sh",
-        "ref": "v0.6.6",
+        "ref": "v0.6.7",
         "repo": "scoot",
         "type": "github"
       }
