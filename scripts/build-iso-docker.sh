@@ -2,7 +2,8 @@
 # Build the scoot-iso ISO with one Docker command (no nix on the host).
 #
 # Copy-paste:
-#   scripts/build-iso-docker.sh
+#   scripts/build-iso-docker.sh             # the online ISO (the release)
+#   scripts/build-iso-docker.sh --offline   # the offline ISO (see below)
 #
 # The .iso lands in ./scoot-iso-out/ owned by you. x86_64 and aarch64
 # build natively. Cross-arch (e.g. the x86_64 ISO on an Apple Silicon
@@ -12,19 +13,29 @@
 # cannot load (see FOREIGN below).
 #
 # What it does: runs the pinned official nixos/nix image (per-arch
-# digest below), which runs `nix build <flake>#iso` with the scoot
+# digest below), which runs `nix build <flake>#iso` (or `#iso-offline`
+# with --offline) with the scoot
 # Cachix plus cache.nixos.org substituters, then copies the .iso out
 # with your UID/GID (files a container writes would otherwise belong
 # to root).
 #
 # Env knobs:
 #   ISO_FLAKE   flake to build (default github:scoot-sh/scoot-iso)
-#   ISO_ATTR    attribute (default iso; the container's native arch picks
-#               the system, or pass .iso.x86_64-linux explicitly)
+#   ISO_ATTR    attribute (default iso, or iso-offline with --offline; the
+#               container's native arch picks the system, or pass
+#               iso.x86_64-linux explicitly). An explicit ISO_ATTR wins
+#               over --offline.
 #   ISO_OUTDIR  where the .iso lands (default ./scoot-iso-out)
 #   ISO_PLATFORM  docker --platform (default: native)
 #   ISO_DOCKER_IMAGE  full image ref override (default: pinned digest
 #               for the native arch)
+#   --offline   build the offline ISO: the online one plus the reference
+#               target system and its flake inputs, so the canonical
+#               system installs with no network (README, "The offline
+#               ISO"). It is larger than a GitHub release asset may be,
+#               which is why it is built locally and never released.
+#               Needs about 2 GB more disk than the online ISO and takes
+#               about as long (measured sizes are in the README).
 #   --check     instead of the ISO, run `nix flake check` in the image
 #               (fast plumbing validation for CI and first-time setup)
 #
@@ -32,7 +43,8 @@
 # offers all four looks on its Desktop page, so looks need no build
 # knob; likewise the flake location (home vs /etc/nixos) is an
 # installer choice. Disk/time: about 20 GB free and ~30 min on a warm
-# cache (the script prints elapsed time and the output listing).
+# cache for the online ISO (the script prints elapsed time and the
+# output listing).
 set -euo pipefail
 
 # Pinned official nixos/nix image digests (2026-10-06; re-pin from
@@ -41,11 +53,19 @@ DIGEST_AMD64="sha256:617d914dba5384bf75adf17081583b69371031ec7defce36c34c5fa14fc
 DIGEST_ARM64="sha256:a326ac1ed46069ead5cdcba3a3a1e7255ebf72300c8319bf2c12cacfe9ab2787"
 
 FLAKE="${ISO_FLAKE:-github:scoot-sh/scoot-iso}"
-ATTR="${ISO_ATTR:-iso}"
 OUTDIR="${ISO_OUTDIR:-scoot-iso-out}"
 PLATFORM="${ISO_PLATFORM:-}"
 CHECK=0
-if [ "${1:-}" = "--check" ]; then CHECK=1; fi
+OFFLINE=0
+for arg in "$@"; do
+  case "$arg" in
+    --check) CHECK=1 ;;
+    --offline) OFFLINE=1 ;;
+    *) echo "unknown argument $arg (want --offline and/or --check)" >&2; exit 2 ;;
+  esac
+done
+if [ "$OFFLINE" = 1 ]; then DEFAULT_ATTR=iso-offline; else DEFAULT_ATTR=iso; fi
+ATTR="${ISO_ATTR:-$DEFAULT_ATTR}"
 
 ARCH="$(uname -m)"
 case "$ARCH" in

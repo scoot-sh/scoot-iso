@@ -14,7 +14,28 @@ gets the scoot desktop profile with the ReGreet login screen.
 > each look's own example layout (workspaces and window title left,
 > clock center, system modules with their icons right).
 
-## One command
+## Two ISOs
+
+| | Online (`iso`, the default) | Offline (`iso-offline`) |
+|---|---|---|
+| What it is | The live session and the installer | The same, plus the reference target system's store paths and flake inputs |
+| Install | Needs the network | The canonical system installs with the network cut; any other install needs the network, like the online ISO |
+| Size, x86_64 | 2,729,345,024 bytes (2.54 GiB) | 3,134,275,584 bytes (2.92 GiB) |
+| Size, aarch64 | 2,729,836,544 bytes (2.54 GiB) | 3,130,519,552 bytes (2.92 GiB) |
+| Where you get it | The GitHub release (see [ISO size](#iso-size)), or build it | Build it yourself; it is never released |
+
+Both carry the same hardware support and features as the stock NixOS
+graphical installer: the full `linux-firmware` package, speech synthesis
+(`services.speechd`, on the live image and on every installed system),
+all locales and the stock squashfs compression. Nothing is trimmed from
+either. The offline ISO differs only by the extra store paths described
+under [The offline ISO](#the-offline-iso).
+
+## Get the online ISO
+
+Download the `.iso` and `SHA256SUMS` from the
+[releases page](https://github.com/scoot-sh/scoot-iso/releases), or build
+it. With Nix:
 
 ```sh
 nix build github:scoot-sh/scoot-iso#iso
@@ -29,7 +50,7 @@ nixos-rebuild build-image --image-variant iso-installer \
   --flake github:scoot-sh/scoot-iso#scoot-live-x86_64-linux
 ```
 
-Without nix, the same build runs in Docker (pinned official
+Without Nix, the same build runs in Docker (pinned official
 `nixos/nix` image, scoot Cachix plus cache.nixos.org so most of it
 downloads); the `.iso` lands in `./scoot-iso-out/` owned by you:
 
@@ -46,13 +67,43 @@ time and the output listing; `scripts/build-iso-docker.sh --check` runs
 `nix flake check` in the image instead (fast plumbing validation).
 About 20 GB free and some 30 minutes natively on a warm cache.
 
-When release hosting exists, downloading the ISO is the third way;
-until then there are two. GitHub release assets cap at 2 GB (see
-below), so first releases publish out of band.
-
 Apple Silicon Macs need the Asahi installer, not this ISO: bare-metal
 Apple Silicon boots only through Apple's bootloader chain, which a
 generic ISO cannot provide.
+
+## The offline ISO
+
+Build it with the same script and `--offline`:
+
+```sh
+scripts/build-iso-docker.sh --offline
+```
+
+or with Nix:
+
+```sh
+nix build github:scoot-sh/scoot-iso#iso-offline
+```
+
+It is the online ISO plus the store paths of one fixed reference system
+and the sources of its flake inputs, so that system installs with the
+network cut. Its file name starts `nixos-scoot-offline-`, so it never
+overwrites an online ISO in the same output directory.
+A build needs about 2 GB more disk than the online ISO (about 1.1 GiB of extra store
+paths, and an ISO about 0.4 GB larger) and takes about as long.
+
+What the extra store paths buy:
+
+- The reference system (user and host `scoot`, UTC, `en_US.UTF-8`,
+  moonrise, the home-folder layout, the QEMU test's virtio hardware)
+  installs with no network at all. That is what `scripts/qemu-test.sh
+  --mode offline` drives.
+- Every other install, which is every install on real hardware (see
+  below), still needs the network. The extra paths only save the
+  download of what they cover.
+
+It is a way to run the QEMU test and to carry the reference system
+around, not a way to install a machine offline.
 
 ## Flashing to USB
 
@@ -74,11 +125,10 @@ Boot the stick in UEFI mode.
   Install/Try pointers and doc links, in scoot.sh's own style (the
   scoot cat on black, ginger links). On the live session it reopens
   anytime from the **Welcome to scoot** launcher or the bar's
-  **Welcome** button. (Implementation note: it is a styled local page,
-  `file:///etc/scoot-welcome/index.html`, opened in Firefox — zero new
-  binaries on an ISO where every megabyte counts toward the 2 GB
-  release-asset cap, its art and font shipped beside it, and links
-  that just work.) The installed system does not ship the page or the
+  **Welcome** button. (It is a styled local page,
+  `file:///etc/scoot-welcome/index.html`, opened in Firefox: no new
+  binaries, its art and font shipped beside it, and links that just
+  work.) The installed system does not ship the page or the
   button — after installing, the same guides live at
   <https://www.scoot.sh/>.
 - Calamares, with four **scoot** entries in the Desktop list (one per
@@ -104,14 +154,17 @@ scoot Cachix the installed config trusts), so real hardware, whose kernel module
 filesystems and config differ from anything the ISO could ship,
 installs like any other NixOS. The ISO's store still helps:
 `nixos-install` also substitutes from the live system's store, so every
-path the ISO already carries is copied locally instead of downloaded,
-and only what your machine adds comes over the network.
+path the live system shares with your installed system is copied locally
+instead of downloaded, and the rest comes over the network. (The offline
+ISO also holds the reference system's paths, which helps only an install
+that matches it.)
 
-An offline install is not something the graphical installer can do.
+An offline install is not something the graphical installer can do,
+on either ISO.
 Every graphical install writes its own `hardware-configuration.nix`
 (your disks by UUID, your modules) plus your user name, host name,
 timezone and locale, so its system never matches the one closure the
-ISO ships, and the missing paths have to come from the network.
+offline ISO ships, and the missing paths have to come from the network.
 
 If the network drops after the first page, the install stops short of
 installing the system. The installer checks the network again just
@@ -233,42 +286,17 @@ including commercially and without attribution. It is not part of scoot's
 MIT-licensed code and stays under the Unsplash License wherever scoot-iso
 is redistributed; see scoot's `NOTICE`.
 
-## ISO size and hosting
+## ISO size
 
-GitHub release assets cap at 2 GiB (2,147,483,648 bytes). CI's
-`build-iso` job measures the x86_64 ISO on every build, prints the size
-to the job summary and **fails above 2,000,000,000 bytes**, so the image
-cannot creep back over. If a release ISO is under the cap it is
-attached to the GitHub release; if it is over, the release job attaches
-`SHA256SUMS` only and the ISO is published out of band (a static file
-host or torrent — TBD at first release), with the checksum file as the
-trust anchor. CI does not build aarch64; measure that one with
-`stat -c%s` on a local build.
+The sizes are in the table under [Two ISOs](#two-isos), measured on scoot
+v0.6.10 (x86_64 from CI, aarch64 built on an aarch64 machine).
 
-Sizes: x86_64 1,908,867,072 bytes (CI), aarch64 1,972,770,816 bytes
-(a local build). CI does not build or gate aarch64, which sits about
-27 MB under the 2,000,000,000-byte limit.
-
-What is cut to get there:
-
-- **Speech synthesis is off, on the installed system too.** The
-  reference target's closure rides the ISO for the offline install, and
-  the mbrola voices alone were 565 MB compressed.
-  `iso/target/configuration.nix` writes `services.speechd.enable = false;`
-  (scoot ships no screen reader). Set it to `true` in the installed
-  `configuration.nix` to restore it.
-- **The live image carries less firmware.** `linux-firmware` is
-  live-only (an installed system's own hardware config brings the full
-  package). Dropped: rack-switch ASICs (Mellanox, Marvell Prestera);
-  all of `nvidia/` (nouveau firmware for Turing and newer, Maxwell and
-  Pascal, Volta, and the Tegra SoCs), so those GPUs run the live session
-  on the firmware framebuffer without 3D; and Qualcomm SoC firmware (all
-  of it on x86_64; on aarch64 only the Snapdragon X and 8cx laptop
-  families are kept, and phone, Chromebook (sc7180) and embedded SoCs
-  such as sdm845 and sm8250 are dropped). AMD and Intel GPU firmware,
-  Wi-Fi, Bluetooth and NIC firmware stay.
-- **xz squashfs instead of zstd**, 6% smaller, with slower live store
-  reads.
+CI builds the online ISO on every push and fails the `build-iso` job at
+2,800,000,000 bytes, a regression ceiling just above the measured x86_64
+size. A release refuses to attach an ISO of 2 GiB (2,147,483,648 bytes)
+or more, because GitHub rejects release assets over that. The online ISO
+is currently over that limit, so no release carries it yet. The offline
+ISO is built by whoever needs it and never released.
 
 ## Troubleshooting by symptom
 
@@ -326,20 +354,26 @@ nix flake check          # patch-consistency + module eval (cheap, runs everywhe
 nix flake lock --update-input scoot   # re-pin scoot (then re-verify the look list + anchors)
 ```
 
-### The QEMU test, and the offline install it drives
+### The QEMU test
 
-`scripts/qemu-test.sh` boots the ISO in QEMU, installs, boots the
+`scripts/qemu-test.sh` boots an ISO in QEMU, installs, boots the
 installed disk, logs in through ReGreet and checks the session. CI runs
 it on every PR (x86_64, KVM). It is a maintainer tool, not a way to
-install a machine.
+install a machine. `--mode` picks what it proves:
 
-Its main install runs with the network cut. That works only because
-it installs one fixed **canonical** system: user and host `scoot`,
+| Mode | ISO | What runs |
+|---|---|---|
+| `offline` (default, CI job `qemu-test`) | `iso-offline` | Live session checks, the offline pre-flight refusal for non-canonical hardware, the canonical install with the network cut, the login and session checks, offline rebuilds on the installed system, then the same hardware tweak installed with the network up |
+| `online` (CI job `qemu-test-online`) | `iso` (the released bytes) | Live session checks, a check that the reference system is not on the ISO, the canonical install with the network up (everything downloaded), then the login and session checks |
+| `live` | either | Boot to the live session and its checks only; no disk is touched |
+
+The offline install works only because it installs one fixed
+**canonical** system: user and host `scoot`,
 UTC, `en_US.UTF-8`, moonrise, the home-folder layout, and the static
 QEMU hardware in `iso/target/hardware-configuration.nix` (a virtio
 disk at `/dev/vda`, no UUIDs). The reference target
 `nix/target-machine.nix` describes that same system, its toplevel
-rides the ISO (`isoImage.storeContents`, along with every flake input
+rides the offline ISO (`isoImage.storeContents`, along with every flake input
 source), and `tests/render_check.py` gates that the installer's
 template, rendered with the canonical identity, evaluates to exactly
 that toplevel. The installer's offline branch then pre-copies the
@@ -351,14 +385,15 @@ hardware-tweak case proves the offline pre-flight refuses that, and
 that the same tweak installs with the network up.
 
 To run it locally (the target files come from the flake, so they are
-byte-for-byte what the installer embeds):
+byte-for-byte what the installer embeds). Use `iso-offline` for
+`--mode offline` and `iso` for `--mode online` or `--mode live`:
 
 ```sh
-nix build .#packages.x86_64-linux.iso -o result-iso
+nix build .#packages.x86_64-linux.iso-offline -o result-iso
 nix build .#packages.x86_64-linux.target-flake -o result-target-flake
 nix build .#packages.x86_64-linux.target-configuration -o result-target-config
 nix build .#packages.x86_64-linux.target-hardware -o result-target-hardware
-scripts/qemu-test.sh --iso result-iso/iso/*.iso \
+scripts/qemu-test.sh --mode offline --iso result-iso/iso/*.iso \
   --target-flake "$(readlink -f result-target-flake)" \
   --target-config "$(readlink -f result-target-config)" \
   --target-hardware "$(readlink -f result-target-hardware)" \

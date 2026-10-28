@@ -116,7 +116,11 @@
     {
       nixosConfigurations =
         let
-          liveSystem = system:
+          # shipTargetClosure picks the variant: false is the online ISO
+          # (the default and the release), true the offline one, which
+          # also carries the reference target's closure and its flake
+          # input sources (nix/live.nix).
+          liveSystem = system: shipTargetClosure:
             nixpkgs.lib.nixosSystem {
               inherit system;
               modules = [
@@ -137,14 +141,14 @@
                 }
               ];
               specialArgs = {
-                inherit scoot flakeInputs targetInputSrcs;
+                inherit scoot flakeInputs targetInputSrcs shipTargetClosure;
                 calamaresOverlay = mkCalamaresOverlay (calamaresFor system);
                 targetToplevel =
                   self.nixosConfigurations."scoot-target-${system}".config.system.build.toplevel;
               };
             };
           # Reference target machine (stub hardware): its closure ships
-          # in the ISO for the network-cut install. Mirrors
+          # in the offline ISO for the network-cut install. Mirrors
           # iso/target/configuration.nix's scoot options; the installed
           # files come from iso/target/* by construction.
           targetSystem = system:
@@ -171,15 +175,18 @@
         in
         builtins.foldl'
           (acc: system: acc // {
-            "scoot-live-${system}" = liveSystem system;
+            "scoot-live-${system}" = liveSystem system false;
+            "scoot-live-offline-${system}" = liveSystem system true;
             "scoot-target-${system}" = targetSystem system;
           })
           { }
           systems;
 
-      # One command: `nix build github:scoot-sh/scoot-iso#iso`
-      # (pick `.iso.x86_64-linux` / `.iso.aarch64-linux` explicitly when
-      # evaluating on macOS). Apple Silicon Macs need the Asahi installer,
+      # One command: `nix build github:scoot-sh/scoot-iso#iso` is the
+      # online ISO, the one released; `#iso-offline` also carries the
+      # reference target's closure (see the README). Pick
+      # `.iso.x86_64-linux` / `.iso.aarch64-linux` explicitly when
+      # evaluating on macOS. Apple Silicon Macs need the Asahi installer,
       # not this ISO.
       packages = forEach (
         system:
@@ -188,6 +195,8 @@
         in
         {
           iso = live.config.system.build.isoImage;
+          iso-offline =
+            self.nixosConfigurations."scoot-live-offline-${system}".config.system.build.isoImage;
           # The exact target files the patched Calamares writes, as
           # store paths, so the QEMU test installs byte-for-byte what
           # the GUI would write. (Plain file copies: packages must be
