@@ -393,8 +393,8 @@ in
   # speech-dispatcher by default, which drags in 645 MiB of mbrola
   # voices that scoot's desktop (no screen reader) never uses. Set
   # `services.speechd.enable = true;` to bring it back. (The ISO
-  # needs this to fit GitHub's 2 GB release cap, and mirrors it in
-  # nix/target-machine.nix.)
+  # needs this to fit GitHub's 2 GB release cap, and
+  # nix/target-machine.nix and the live image mirror it.)
   services.speechd.enable = false;
 
   # The scoot desktop profile with the chosen look, the session entry and

@@ -37,15 +37,21 @@ let
   # package). Removed, with the reason each is safe:
   #   mellanox, mrvl/prestera: rack-switch ASIC firmware (175 MiB).
   #   qcom: Qualcomm phone/embedded-SoC GPU, DSP and video firmware
-  #     (206 MiB). x86_64 has no such SoC; aarch64 keeps the dirs of
-  #     the Snapdragon laptops (x1e80100, sc8280xp, and the eliza and
-  #     qcm6490 files their links share), the video and AI-accelerator
-  #     firmware, and the top-level Adreno files.
-  #   nvidia: nouveau's GSP firmware (103 MiB). Turing and
-  #     newer cards then fall back to the firmware framebuffer through
-  #     scoot's CPU path (not exercised on NVIDIA hardware here). GPUs
-  #     from AMD and Intel, every Wi-Fi/Bluetooth vendor and the NIC
-  #     firmware stay.
+  #     (206 MiB). x86_64 has no such SoC. aarch64 keeps the Snapdragon
+  #     X laptop dirs (x1e80100, x1p42100), the 8cx Gen 3 dirs
+  #     (sc8280xp), vpu, aic100, the eliza and qcm6490 files their
+  #     links share, and the top-level Adreno files. It drops the
+  #     phone, Chromebook and embedded families (sdm845, sm8150 to
+  #     sm8750, qcm*/qcs*, sa8775p, venus-* video for sc7180 and
+  #     others, ...).
+  #   nvidia: the whole nvidia/ directory (~100 MiB): nouveau's GSP
+  #     firmware for Turing and newer (tu10x, ga10x, ad10x, gb10x), the
+  #     Maxwell and Pascal signed firmware (gm20x, gp10x), Volta, and
+  #     the Tegra SoC firmware (tegra124 to tegra264, gk20a, gm20b,
+  #     gp10b). Those cards and SoCs fall back to the firmware
+  #     framebuffer through scoot's CPU path, without 3D (not exercised
+  #     on NVIDIA hardware here). GPUs from AMD and Intel, every
+  #     Wi-Fi/Bluetooth vendor and the NIC firmware stay.
   # The package's dedup step symlinks identical files across vendor
   # directories, so a removal could leave a link dangling in a
   # directory that stays: the build fails on that instead of shipping it.
@@ -59,7 +65,7 @@ let
           ''
             find "$fw/qcom" -mindepth 1 -maxdepth 1 -type d \
               ! -name x1e80100 ! -name sc8280xp ! -name vpu ! -name aic100 \
-              ! -name eliza ! -name qcm6490 \
+              ! -name eliza ! -name qcm6490 ! -name x1p42100 \
               -exec rm -rf {} +
           ''
         else
@@ -320,7 +326,7 @@ in
     services.speechd.enable = false;
 
     # xz instead of the profile's zstd level 19: the same store
-    # compresses another ~9% smaller (the firmware blobs are already
+    # compresses another 6% smaller (the firmware blobs are already
     # compressed and do not shrink either way). x86_64 also gets the
     # BCJ filter that pre-conditions machine code. The cost is a
     # slower squashfs decompress while the live image reads its store.

@@ -245,37 +245,30 @@ host or torrent — TBD at first release), with the checksum file as the
 trust anchor. CI does not build aarch64; measure that one with
 `stat -c%s` on a local build.
 
-What keeps the image under the cap (each step on top of the previous;
-aarch64 built natively on one host, x86_64 from CI's `build-iso`):
+Sizes: x86_64 1,908,867,072 bytes (CI), aarch64 1,972,770,816 bytes
+(a local build). CI does not build or gate aarch64, which sits about
+27 MB under the 2,000,000,000-byte limit.
 
-| Step | aarch64 ISO bytes |
-| --- | --- |
-| Before (NixOS defaults, zstd level 19) | 3,130,515,456 |
-| Speech synthesis off (`services.speechd.enable = false`: 645 MiB of mbrola voices, flite, speech-dispatcher) and rack-switch firmware (Mellanox, Marvell Prestera) dropped | 2,365,405,184 |
-| squashfs compressed with xz instead of zstd | 2,218,127,360 |
-| Qualcomm SoC and NVIDIA GSP firmware dropped | 1,972,770,816 |
+What is cut to get there:
 
-The x86_64 ISO went from about 3.07 GB (squashfs alone, zstd) to
-1,908,867,072 bytes.
-
-Things worth knowing about those cuts:
-
-- **Speech synthesis is off on the installed system too.** The reference
-  target's closure rides the ISO for the offline install, and the full
-  mbrola voice set alone was 565 MB compressed. `iso/target/configuration.nix`
-  therefore writes `services.speechd.enable = false;`; scoot ships no
-  screen reader. Set it back to `true` in the installed
+- **Speech synthesis is off, on the installed system too.** The
+  reference target's closure rides the ISO for the offline install, and
+  the mbrola voices alone were 565 MB compressed.
+  `iso/target/configuration.nix` writes `services.speechd.enable = false;`
+  (scoot ships no screen reader). Set it to `true` in the installed
   `configuration.nix` to restore it.
-- **The live image carries less firmware** (`linux-firmware` is live-only;
-  an installed system's own hardware config brings the full package).
-  Dropped: rack-switch ASICs, Qualcomm SoC firmware (aarch64 keeps the
-  Snapdragon laptop directories), and NVIDIA's GSP firmware for nouveau.
-  Everything for AMD and Intel GPUs, Wi-Fi, Bluetooth and NICs stays. An
-  NVIDIA Turing-or-newer card then runs the live session on the
-  firmware framebuffer instead of nouveau.
-- **xz makes the live store read slower than zstd** (it compressed
-  6% smaller here). Firmware is already compressed per file, so it
-  does not shrink under either.
+- **The live image carries less firmware.** `linux-firmware` is
+  live-only (an installed system's own hardware config brings the full
+  package). Dropped: rack-switch ASICs (Mellanox, Marvell Prestera);
+  all of `nvidia/` (nouveau firmware for Turing and newer, Maxwell and
+  Pascal, Volta, and the Tegra SoCs), so those GPUs run the live session
+  on the firmware framebuffer without 3D; and Qualcomm SoC firmware (all
+  of it on x86_64; on aarch64 only the Snapdragon X and 8cx laptop
+  families are kept, and phone, Chromebook (sc7180) and embedded SoCs
+  such as sdm845 and sm8250 are dropped). AMD and Intel GPU firmware,
+  Wi-Fi, Bluetooth and NIC firmware stay.
+- **xz squashfs instead of zstd**, 6% smaller, with slower live store
+  reads.
 
 ## Troubleshooting by symptom
 
