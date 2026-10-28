@@ -245,15 +245,18 @@ host or torrent — TBD at first release), with the checksum file as the
 trust anchor. CI does not build aarch64; measure that one with
 `stat -c%s` on a local build.
 
-What keeps the image under the cap (aarch64 sizes, measured on one
-build host, each step on top of the previous):
+What keeps the image under the cap (each step on top of the previous;
+aarch64 built natively on one host, x86_64 from CI's `build-iso`):
 
 | Step | aarch64 ISO bytes |
 | --- | --- |
 | Before (NixOS defaults, zstd level 19) | 3,130,515,456 |
 | Speech synthesis off (`services.speechd.enable = false`: 645 MiB of mbrola voices, flite, speech-dispatcher) and rack-switch firmware (Mellanox, Marvell Prestera) dropped | 2,365,405,184 |
 | squashfs compressed with xz instead of zstd | 2,218,127,360 |
-| Qualcomm SoC and NVIDIA GSP firmware dropped | 1,961,447,424 |
+| Qualcomm SoC and NVIDIA GSP firmware dropped | 1,972,770,816 |
+
+The x86_64 ISO went from about 3.07 GB (squashfs alone, zstd) to
+1,908,867,072 bytes.
 
 Things worth knowing about those cuts:
 
