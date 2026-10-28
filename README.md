@@ -235,12 +235,44 @@ is redistributed; see scoot's `NOTICE`.
 
 ## ISO size and hosting
 
-GitHub release assets cap at 2 GB. CI measures the ISO on every build
-and prints the size to the job summary. If a release ISO is under the
-cap it is attached to the GitHub release; if it is over, the release
-job attaches `SHA256SUMS` only and the ISO is published out of band
-(a static file host or torrent — TBD at first release), with the
-checksum file as the trust anchor.
+GitHub release assets cap at 2 GiB (2,147,483,648 bytes). CI's
+`build-iso` job measures the x86_64 ISO on every build, prints the size
+to the job summary and **fails above 2,000,000,000 bytes**, so the image
+cannot creep back over. If a release ISO is under the cap it is
+attached to the GitHub release; if it is over, the release job attaches
+`SHA256SUMS` only and the ISO is published out of band (a static file
+host or torrent — TBD at first release), with the checksum file as the
+trust anchor. CI does not build aarch64; measure that one with
+`stat -c%s` on a local build.
+
+What keeps the image under the cap (aarch64 sizes, measured on one
+build host, each step on top of the previous):
+
+| Step | aarch64 ISO bytes |
+| --- | --- |
+| Before (NixOS defaults, zstd level 19) | 3,130,515,456 |
+| Speech synthesis off (`services.speechd.enable = false`: 645 MiB of mbrola voices, flite, speech-dispatcher) and rack-switch firmware (Mellanox, Marvell Prestera) dropped | 2,365,405,184 |
+| squashfs compressed with xz instead of zstd | 2,218,127,360 |
+| Qualcomm SoC and NVIDIA GSP firmware dropped | 1,961,447,424 |
+
+Things worth knowing about those cuts:
+
+- **Speech synthesis is off on the installed system too.** The reference
+  target's closure rides the ISO for the offline install, and the full
+  mbrola voice set alone was 565 MB compressed. `iso/target/configuration.nix`
+  therefore writes `services.speechd.enable = false;`; scoot ships no
+  screen reader. Set it back to `true` in the installed
+  `configuration.nix` to restore it.
+- **The live image carries less firmware** (`linux-firmware` is live-only;
+  an installed system's own hardware config brings the full package).
+  Dropped: rack-switch ASICs, Qualcomm SoC firmware (aarch64 keeps the
+  Snapdragon laptop directories), and NVIDIA's GSP firmware for nouveau.
+  Everything for AMD and Intel GPUs, Wi-Fi, Bluetooth and NICs stays. An
+  NVIDIA Turing-or-newer card then runs the live session on the
+  firmware framebuffer instead of nouveau.
+- **xz makes the live store read slower than zstd** (it compressed
+  6% smaller here). Firmware is already compressed per file, so it
+  does not shrink under either.
 
 ## Troubleshooting by symptom
 

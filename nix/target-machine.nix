@@ -191,6 +191,14 @@ in
   # switch` fails. Mirrors the template exactly (drvPath gate holds).
   programs.dconf.enable = true;
 
+  # No speech synthesis: the graphical-desktop module enables
+  # speech-dispatcher by default, which drags in 645 MiB of mbrola
+  # voices that scoot's desktop (no screen reader) never uses. Set
+  # `services.speechd.enable = true;` to bring it back. (The ISO
+  # needs this to fit GitHub's 2 GB release cap, and mirrors it in
+  # nix/target-machine.nix.)
+  services.speechd.enable = false;
+
   programs.nh = {
     enable = true;
     flake = "/home/scoot/nixos-config";
