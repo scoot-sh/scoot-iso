@@ -22,7 +22,7 @@ gets the scoot desktop profile with the ReGreet login screen.
 | Install | Needs the network | The canonical system installs with the network cut; any other install needs the network, like the online ISO |
 | Size, x86_64 | 2,729,345,024 bytes (2.54 GiB) | 3,134,275,584 bytes (2.92 GiB) |
 | Size, aarch64 | 2,729,836,544 bytes (2.54 GiB) | 3,130,519,552 bytes (2.92 GiB) |
-| Where you get it | The GitHub release (see [ISO size](#iso-size)), or build it | Build it yourself; it is never released |
+| Where you get it | x86_64: the GitHub release (see [ISO size](#iso-size)). aarch64: build it | Build it yourself; it is never released |
 
 Both carry the same hardware support and features as the stock NixOS
 graphical installer: the full `linux-firmware` package, speech synthesis
@@ -33,9 +33,9 @@ under [The offline ISO](#the-offline-iso).
 
 ## Get the online ISO
 
-Download the `.iso` and `SHA256SUMS` from the
-[releases page](https://github.com/scoot-sh/scoot-iso/releases), or build
-it. With Nix:
+Releases carry the x86_64 `.iso` and its `SHA256SUMS`: download them from the
+[releases page](https://github.com/scoot-sh/scoot-iso/releases). For aarch64,
+or to build it yourself, with Nix:
 
 ```sh
 nix build github:scoot-sh/scoot-iso#iso
