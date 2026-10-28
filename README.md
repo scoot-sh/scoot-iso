@@ -235,12 +235,40 @@ is redistributed; see scoot's `NOTICE`.
 
 ## ISO size and hosting
 
-GitHub release assets cap at 2 GB. CI measures the ISO on every build
-and prints the size to the job summary. If a release ISO is under the
-cap it is attached to the GitHub release; if it is over, the release
-job attaches `SHA256SUMS` only and the ISO is published out of band
-(a static file host or torrent — TBD at first release), with the
-checksum file as the trust anchor.
+GitHub release assets cap at 2 GiB (2,147,483,648 bytes). CI's
+`build-iso` job measures the x86_64 ISO on every build, prints the size
+to the job summary and **fails above 2,000,000,000 bytes**, so the image
+cannot creep back over. If a release ISO is under the cap it is
+attached to the GitHub release; if it is over, the release job attaches
+`SHA256SUMS` only and the ISO is published out of band (a static file
+host or torrent — TBD at first release), with the checksum file as the
+trust anchor. CI does not build aarch64; measure that one with
+`stat -c%s` on a local build.
+
+Sizes: x86_64 1,908,867,072 bytes (CI), aarch64 1,972,770,816 bytes
+(a local build). CI does not build or gate aarch64, which sits about
+27 MB under the 2,000,000,000-byte limit.
+
+What is cut to get there:
+
+- **Speech synthesis is off, on the installed system too.** The
+  reference target's closure rides the ISO for the offline install, and
+  the mbrola voices alone were 565 MB compressed.
+  `iso/target/configuration.nix` writes `services.speechd.enable = false;`
+  (scoot ships no screen reader). Set it to `true` in the installed
+  `configuration.nix` to restore it.
+- **The live image carries less firmware.** `linux-firmware` is
+  live-only (an installed system's own hardware config brings the full
+  package). Dropped: rack-switch ASICs (Mellanox, Marvell Prestera);
+  all of `nvidia/` (nouveau firmware for Turing and newer, Maxwell and
+  Pascal, Volta, and the Tegra SoCs), so those GPUs run the live session
+  on the firmware framebuffer without 3D; and Qualcomm SoC firmware (all
+  of it on x86_64; on aarch64 only the Snapdragon X and 8cx laptop
+  families are kept, and phone, Chromebook (sc7180) and embedded SoCs
+  such as sdm845 and sm8250 are dropped). AMD and Intel GPU firmware,
+  Wi-Fi, Bluetooth and NIC firmware stay.
+- **xz squashfs instead of zstd**, 6% smaller, with slower live store
+  reads.
 
 ## Troubleshooting by symptom
 

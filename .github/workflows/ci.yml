@@ -49,9 +49,14 @@ jobs:
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
           echo "## ISO size" >> "$GITHUB_STEP_SUMMARY"
           echo "$iso: $bytes bytes ($(numfmt --to=iec "$bytes"))" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$bytes" -ge 2147483648 ]; then
-            echo "OVER 2 GB: GitHub release assets cap at 2 GB; see README (hosting)." >> "$GITHUB_STEP_SUMMARY"
+          # GitHub's release-asset cap is 2 GiB (2147483648); fail well
+          # before it so the ISO cannot creep back over unnoticed.
+          limit=2000000000
+          if [ "$bytes" -ge "$limit" ]; then
+            echo "OVER THE ISO SIZE BUDGET: $bytes bytes >= $limit. GitHub release assets cap at 2 GiB; slim the image (README, ISO size and hosting)." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
+          echo "$bytes bytes is under the $limit-byte budget." >> "$GITHUB_STEP_SUMMARY"
       - name: upload ISO artifact
         uses: actions/upload-artifact@v4
         with:

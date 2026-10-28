@@ -29,6 +29,66 @@ let
   system = pkgs.stdenv.hostPlatform.system;
   scootPkgs = scoot.packages.${system};
 
+  # linux-firmware trimmed to what a live installer can use. It is 652
+  # MiB of blobs the squashfs cannot shrink (already zstd per file;
+  # recompressing them raw under xz gains nothing, measured), the
+  # biggest single cost of the image, and only the live system carries
+  # it (the installed system's own hardware config adds the full
+  # package). Removed, with the reason each is safe:
+  #   mellanox, mrvl/prestera: rack-switch ASIC firmware (175 MiB).
+  #   qcom: Qualcomm phone/embedded-SoC GPU, DSP and video firmware
+  #     (206 MiB). x86_64 has no such SoC. aarch64 keeps the Snapdragon
+  #     X laptop dirs (x1e80100, x1p42100), the 8cx Gen 3 dirs
+  #     (sc8280xp), vpu, aic100, the eliza and qcm6490 files their
+  #     links share, and the top-level Adreno files. It drops the
+  #     phone, Chromebook and embedded families (sdm845, sm8150 to
+  #     sm8750, qcm*/qcs*, sa8775p, venus-* video for sc7180 and
+  #     others, ...).
+  #   nvidia: the whole nvidia/ directory (~100 MiB): nouveau's GSP
+  #     firmware for Turing and newer (tu10x, ga10x, ad10x, gb10x), the
+  #     Maxwell and Pascal signed firmware (gm20x, gp10x), Volta, and
+  #     the Tegra SoC firmware (tegra124 to tegra264, gk20a, gm20b,
+  #     gp10b). Those cards and SoCs fall back to the firmware
+  #     framebuffer through scoot's CPU path, without 3D (not exercised
+  #     on NVIDIA hardware here). GPUs from AMD and Intel, every
+  #     Wi-Fi/Bluetooth vendor and the NIC firmware stay.
+  # The package's dedup step symlinks identical files across vendor
+  # directories, so a removal could leave a link dangling in a
+  # directory that stays: the build fails on that instead of shipping it.
+  slimFirmwareOverlay = _final: prev: {
+    linux-firmware = prev.linux-firmware.overrideAttrs (old: {
+      postInstall = (old.postInstall or "") + ''
+        fw=$out/lib/firmware
+        rm -rf "$fw/mellanox" "$fw/mrvl/prestera" "$fw/nvidia"
+      '' + (
+        if prev.stdenv.hostPlatform.isAarch64 then
+          ''
+            find "$fw/qcom" -mindepth 1 -maxdepth 1 -type d \
+              ! -name x1e80100 ! -name sc8280xp ! -name vpu ! -name aic100 \
+              ! -name eliza ! -name qcm6490 ! -name x1p42100 \
+              -exec rm -rf {} +
+          ''
+        else
+          ''
+            rm -rf "$fw/qcom"
+          ''
+      ) + ''
+        # Links to the removed Qualcomm blobs (a300_pm4.fw -> qcom/...,
+        # qcom/a530_zap.mdt -> apq8096/...) are the Adreno entries for
+        # those SoCs: remove them with the blobs. Any other dangling
+        # link is a mistake and fails below.
+        find "$fw" -maxdepth 1 -xtype l -lname 'qcom/*' -delete
+        [ ! -d "$fw/qcom" ] || find "$fw/qcom" -maxdepth 1 -xtype l -delete
+        dangling=$(find "$fw" -xtype l)
+        if [ -n "$dangling" ]; then
+          echo "firmware links left dangling by the slimming:" >&2
+          echo "$dangling" >&2
+          exit 1
+        fi
+      '';
+    });
+  };
+
   # First-login welcome: opens once per live boot, always reachable
   # later via the launcher entry and the bar's Welcome button. HOME/USER
   # are exported explicitly: the greetd initial session arrives with a
@@ -250,7 +310,28 @@ in
     nixpkgs.overlays = [
       scoot.overlays.default
       calamaresOverlay
+      slimFirmwareOverlay
     ];
+
+    # The ISO must stay under GitHub's 2 GB release-asset cap (CI's
+    # build-iso job fails above 2,000,000,000 bytes); see the README's
+    # "ISO size" section for what each trim saved.
+    #
+    # Speech synthesis: the graphical-desktop module turns speechd on,
+    # and with it 645 MiB of mbrola voices (the live image's trimmed
+    # copy shares files with the installed system's full set, so
+    # neither can stay). scoot ships no screen reader. The installed
+    # template and its mirror (nix/target-machine.nix) turn it off
+    # too; the three must agree so the offline install resolves.
+    services.speechd.enable = false;
+
+    # xz instead of the profile's zstd level 19: the same store
+    # compresses another 6% smaller (the firmware blobs are already
+    # compressed and do not shrink either way). x86_64 also gets the
+    # BCJ filter that pre-conditions machine code. The cost is a
+    # slower squashfs decompress while the live image reads its store.
+    isoImage.squashfsCompression =
+      "xz -Xdict-size 100%" + lib.optionalString pkgs.stdenv.hostPlatform.isx86_64 " -Xbcj x86";
 
     # Prebuilt scoot binaries instead of compiling on the target.
     nix.settings = {
