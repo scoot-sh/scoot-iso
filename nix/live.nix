@@ -59,13 +59,16 @@ let
             find "$fw/qcom" -mindepth 1 -maxdepth 1 -type d \
               ! -name x1e80100 ! -name sc8280xp ! -name vpu ! -name aic100 \
               -exec rm -rf {} +
-            find "$fw/qcom" -xtype l -delete
           ''
         else
           ''
             rm -rf "$fw/qcom"
           ''
       ) + ''
+        # Links to the removed Qualcomm blobs (a300_pm4.fw -> qcom/...)
+        # are the Adreno entries for those SoCs: remove them with the
+        # blobs. Any other dangling link is a mistake and fails below.
+        find "$fw" -xtype l -lname '*qcom/*' -delete
         dangling=$(find "$fw" -xtype l)
         if [ -n "$dangling" ]; then
           echo "firmware links left dangling by the slimming:" >&2
