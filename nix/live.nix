@@ -38,8 +38,9 @@ let
   #   mellanox, mrvl/prestera: rack-switch ASIC firmware (175 MiB).
   #   qcom: Qualcomm phone/embedded-SoC GPU, DSP and video firmware
   #     (206 MiB). x86_64 has no such SoC; aarch64 keeps the dirs of
-  #     the Snapdragon laptops (x1e80100, sc8280xp), the video and
-  #     AI-accelerator firmware, and the top-level Adreno files.
+  #     the Snapdragon laptops (x1e80100, sc8280xp, and the eliza and
+  #     qcm6490 files their links share), the video and AI-accelerator
+  #     firmware, and the top-level Adreno files.
   #   nvidia: nouveau's GSP firmware (103 MiB). Turing and
   #     newer cards then fall back to the firmware framebuffer through
   #     scoot's CPU path (not exercised on NVIDIA hardware here). GPUs
@@ -58,6 +59,7 @@ let
           ''
             find "$fw/qcom" -mindepth 1 -maxdepth 1 -type d \
               ! -name x1e80100 ! -name sc8280xp ! -name vpu ! -name aic100 \
+              ! -name eliza ! -name qcm6490 \
               -exec rm -rf {} +
           ''
         else
@@ -65,10 +67,12 @@ let
             rm -rf "$fw/qcom"
           ''
       ) + ''
-        # Links to the removed Qualcomm blobs (a300_pm4.fw -> qcom/...)
-        # are the Adreno entries for those SoCs: remove them with the
-        # blobs. Any other dangling link is a mistake and fails below.
-        find "$fw" -xtype l -lname '*qcom/*' -delete
+        # Links to the removed Qualcomm blobs (a300_pm4.fw -> qcom/...,
+        # qcom/a530_zap.mdt -> apq8096/...) are the Adreno entries for
+        # those SoCs: remove them with the blobs. Any other dangling
+        # link is a mistake and fails below.
+        find "$fw" -maxdepth 1 -xtype l -lname 'qcom/*' -delete
+        [ ! -d "$fw/qcom" ] || find "$fw/qcom" -maxdepth 1 -xtype l -delete
         dangling=$(find "$fw" -xtype l)
         if [ -n "$dangling" ]; then
           echo "firmware links left dangling by the slimming:" >&2
