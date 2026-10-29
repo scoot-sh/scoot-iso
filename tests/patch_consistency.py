@@ -544,8 +544,8 @@ check("--option filter-syscalls false" in docker and "FOREIGN" in docker, "docke
 # No size trims anywhere: both ISO variants match the stock NixOS
 # graphical installer's hardware and feature support (speech synthesis
 # on the installed template, its mirror and the live image alike; the
-# full firmware package; the profile's squashfs compression). The one
-# size gate is the released online ISO's, in CI.
+# full firmware package; the profile's squashfs compression). CI reports the
+# online ISO's size and gates nothing.
 for _side, _text in (("target configuration.nix", config), ("mirror", mirror), ("live.nix", live)):
     check("services.speechd" not in _text, f"{_side} touches services.speechd (no trims: stock parity in every variant)")
 check("squashfsCompression" not in live, "live.nix overrides the squashfs compression (no trims)")

@@ -62,7 +62,7 @@ syscall filter (`filter-syscalls`), which emulation cannot load. Expect
 it to be much slower than a native build. The script prints elapsed
 time and the output listing; `scripts/build-iso-docker.sh --check` runs
 `nix flake check` in the image instead (fast plumbing validation).
-About 20 GB free and some 30 minutes natively on a warm cache (CI's x86_64 build takes about 38 minutes, much of it compiling Calamares).
+About 20 GB free and some 30 minutes natively on a warm cache. CI's x86_64 `build-iso` job (build plus artifact upload) took 36 minutes in run 40793122078.
 
 Apple Silicon Macs need the Asahi installer, not this ISO: bare-metal
 Apple Silicon boots only through Apple's bootloader chain, which a
@@ -87,8 +87,8 @@ and the sources of its flake inputs, so that system installs with the
 network cut. Its file name starts `nixos-scoot-offline-`, so it never
 overwrites an online ISO in the same output directory.
 A build needs about 2 GB more disk than the online ISO (about 1.1 GiB of extra store
-paths, and an ISO about 0.4 GB larger) and takes about as long. On CI's x86_64 runner
-it took 24 minutes and the runner's disk went from 39 GB to 53 GB used.
+paths, and an ISO about 0.4 GB larger) and takes about as long. CI's x86_64 `build-iso-offline` job
+took 29 minutes in run 40793122078, and the runner's used disk went from 40 GB to 54 GB (of 145 GB).
 
 What the extra store paths buy:
 

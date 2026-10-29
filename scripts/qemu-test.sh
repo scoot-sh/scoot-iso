@@ -4,7 +4,7 @@
 # Three modes (--mode, or QEMU_TEST_MODE), one per thing worth proving:
 #   offline  the OFFLINE ISO (iso-offline): everything below, including
 #            the network-cut install of the canonical system.
-#   online   the ONLINE ISO (iso, the released one): phases 1 to 1c,
+#   online   the ONLINE ISO (iso): phases 1 to 1c,
 #            then asserts the target closure is not on the ISO and
 #            installs the canonical system with the network up, then
 #            phase 3 (reboot, ReGreet login, session checks). Phases
