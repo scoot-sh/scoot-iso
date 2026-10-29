@@ -477,11 +477,11 @@ check("QEMU_TEST_ONLINE_TWEAK" in qemu, "qemu-test lost the online-tweak skip kn
 # guest_exec "..." must escape every double quote (a bare one ends
 # the host string and the guest receives mangled text). All three
 # netmode probes therefore spell their python with escaped quotes.
-check(qemu.count('mode = \\"offline\\"') == 3, "netmode probes lost their escaped quotes (bare quotes break the guest script)")
-# Both installs partition their disk (canonical and tweak): two
-# sgdisk wipes, two PARTITION markers. A dropped partition step
-# silently installs into the live tmpfs until it fills.
-check(qemu.count("sgdisk -Z /dev/vda") == 2, "qemu-test partition count wrong (canonical partition and tweak partition)")
+check(qemu.count('mode = \\"offline\\"') == 4, "netmode probes lost their escaped quotes (bare quotes break the guest script)")
+# Every install partitions its disk (offline canonical, online canonical
+# and the tweak): three sgdisk wipes. A dropped partition step silently
+# installs into the live tmpfs until it fills.
+check(qemu.count("sgdisk -Z /dev/vda") == 3, "qemu-test partition count wrong (offline, online and tweak partitions)")
 check("range(2700)" in qemu, "qemu-test lost the 90-minute guest-exec ceiling (HVF installs outlast 30 minutes)")
 check("echo PARTITION-OK" in qemu, "qemu-test lost the canonical PARTITION-OK")
 check("echo TWEAK-PARTITION-OK" in qemu, "qemu-test lost the tweak TWEAK-PARTITION-OK")
@@ -541,13 +541,54 @@ check("NATIVE_DIGEST" in docker, "docker script lost the native-arch digest fall
 # (Rosetta: "unable to load seccomp BPF program"); native keeps it.
 check("--option filter-syscalls false" in docker and "FOREIGN" in docker, "docker script lost filter-syscalls off for emulated builds")
 
-# CI: qemu-test waits for the KVM probe (a KVM-less runner must not
-# pay the 30-minute ISO build before failing), and release ships the
-# tested build-iso artifact instead of rebuilding (released bytes are
-# literally the tested bytes).
-check("[build-iso, kvm-probe]" in ci, "qemu-test must need [build-iso, kvm-probe]")
-check("needs: [build-iso, qemu-test]" in ci, "release must need [build-iso, qemu-test] (only tested bytes ship)")
-check(ci.count("nix build .#packages.x86_64-linux.iso") == 1, "only build-iso may build the ISO (release reuses its artifact)")
+# No size trims anywhere: both ISO variants match the stock NixOS
+# graphical installer's hardware and feature support (speech synthesis
+# on the installed template, its mirror and the live image alike; the
+# full firmware package; the profile's squashfs compression). CI reports the
+# online ISO's size and gates nothing.
+for _side, _text in (("target configuration.nix", config), ("mirror", mirror), ("live.nix", live)):
+    check("services.speechd" not in _text, f"{_side} touches services.speechd (no trims: stock parity in every variant)")
+check("squashfsCompression" not in live, "live.nix overrides the squashfs compression (no trims)")
+check("linux-firmware" not in live, "live.nix overrides linux-firmware (no trims)")
+
+# The two variants differ only by the reference target's closure and
+# flake input sources, and only the offline one ships them.
+check("shipTargetClosure" in live and "lib.optionals shipTargetClosure" in live, "live.nix must gate the target closure on shipTargetClosure")
+check("liveSystem system false" in _root_flake and "liveSystem system true" in _root_flake, "flake.nix must define both live variants")
+check(re.search(r"^\s+iso = live\.config\.system\.build\.isoImage;", _root_flake, re.M) is not None, "packages.iso must be the online (default) ISO")
+check("iso-offline" in _root_flake and "scoot-live-offline-" in _root_flake, "flake.nix lost the iso-offline output")
+check("default = live.config.system.build.isoImage;" in _root_flake, "packages.default must be the online ISO")
+check("image.baseName" in live, "live.nix lost the offline file-name override (the two ISOs must not share a name)")
+
+# Docker script: --offline selects the offline attribute, an explicit
+# ISO_ATTR wins, and unknown arguments are refused.
+check("--offline) OFFLINE=1" in docker and "DEFAULT_ATTR=iso-offline" in docker, "docker script lost --offline")
+check('ATTR="${ISO_ATTR:-$DEFAULT_ATTR}"' in docker, "docker script: an explicit ISO_ATTR must win over --offline")
+check("unknown argument" in docker, "docker script must refuse unknown arguments")
+
+# The online mode proves the split: the toplevel is absent from the live
+# store before the install, the probe says online, the install lands.
+for _marker in ("ONLINE-NETMODE-OK", "TOPLEVEL-NOT-ON-ISO-OK", "SLIM-FAIL", "INSTALLED-TOPLEVEL-MISSING"):
+    check(_marker in qemu, f"qemu-test online mode lost {_marker}")
+check('"$MODE" = online' in qemu and '"$MODE" = live' in qemu and '"$MODE" = offline' in qemu, "qemu-test lost one of its three modes")
+
+# CI topology. Nothing is published: there is no release job and no
+# size gate. build-iso builds the online ISO, build-iso-offline the
+# offline one (each command exactly once), and each boot-tests its own
+# bytes: qemu-test installs the offline ISO with the network cut,
+# qemu-test-online installs the online ISO with the network up.
+def _job(name):
+    m = re.search(r"^  " + re.escape(name) + r":\n(.*?)(?=^  [a-z][a-z0-9-]*:\n|\Z)", ci, re.M | re.S)
+    return m.group(1) if m else ""
+
+check(len(re.findall(r"nix build \.#packages\.x86_64-linux\.iso(?![-\w])", ci)) == 1, "exactly one job (build-iso) may build the online ISO")
+check(len(re.findall(r"nix build \.#packages\.x86_64-linux\.iso-offline(?![-\w])", ci)) == 1, "exactly one job (build-iso-offline) may build the offline ISO")
+check("nix build .#packages.x86_64-linux.iso-offline" in _job("build-iso-offline"), "build-iso-offline must build the offline ISO")
+check("needs: [build-iso-offline, kvm-probe]" in _job("qemu-test"), "qemu-test (the offline install) must need [build-iso-offline, kvm-probe]")
+check("--mode online" in _job("qemu-test-online") and "needs: [build-iso, kvm-probe]" in _job("qemu-test-online"), "qemu-test-online must run the online mode on build-iso's artifact")
+check(not re.search(r"^  release:", ci, re.M), "ci.yml must not have a release job (no ISO is distributed)")
+check("gh release" not in ci and "2147483648" not in ci and "2800000000" not in ci, "ci.yml must not publish or size-gate an ISO")
+check("retention-days: 1\n" in _job("build-iso-offline") and "retention-days: 1\n" in _job("build-iso"), "ISO artifacts (test input only) must have 1-day retention")
 
 if failures:
     print("patch-consistency FAILED:")

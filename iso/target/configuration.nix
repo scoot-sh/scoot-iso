@@ -389,14 +389,6 @@ in
   # fails. Proven in QEMU: failed before, active after.
   programs.dconf.enable = true;
 
-  # No speech synthesis: the graphical-desktop module enables
-  # speech-dispatcher by default, which drags in 645 MiB of mbrola
-  # voices that scoot's desktop (no screen reader) never uses. Set
-  # `services.speechd.enable = true;` to bring it back. (The ISO
-  # needs this to fit GitHub's 2 GB release cap, and
-  # nix/target-machine.nix and the live image mirror it.)
-  services.speechd.enable = false;
-
   # The scoot desktop profile with the chosen look, the session entry and
   # the ReGreet greeter (programs.scoot.greeter: greetd running ReGreet
   # under cage; never autologin on an installed system). The look line

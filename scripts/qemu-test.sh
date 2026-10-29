@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 # QEMU end-to-end test for scoot-iso (runs in CI, x86_64 with KVM).
 #
+# Three modes (--mode, or QEMU_TEST_MODE), one per thing worth proving:
+#   offline  the OFFLINE ISO (iso-offline): everything below, including
+#            the network-cut install of the canonical system.
+#   online   the ONLINE ISO (iso): phases 1 to 1c,
+#            then asserts the target closure is not on the ISO and
+#            installs the canonical system with the network up, then
+#            phase 3 (reboot, ReGreet login, session checks). Phases
+#            2a, 2b, 3e and 4 test the offline ISO and are skipped.
+#   live     either ISO: phases 1 to 1c only (boot to the live session,
+#            its desktop and the shipped installer patch); no disk is
+#            touched. The cheap check for a machine too slow for an
+#            install (aarch64 without KVM).
+# The description below is the offline mode, the fullest.
+#
 # 1. Boots the ISO (live session autobots into scoot; screendump it).
 # 2. Proves the live ISO ships our installer patch with byte-exact
 #    templates (repr-embedding check against the shipped main.py), then
@@ -55,6 +69,10 @@ WORKDIR=""
 TEST_USER="scoot"
 TEST_PASS="testpass123"
 SYSTEM="x86_64-linux"
+# offline: the offline ISO, installing the canonical system with the
+# network cut. online: the online ISO, installing it with the network up.
+# live: boot to the live session and check it, no install.
+MODE="${QEMU_TEST_MODE:-offline}"
 # Phase 2c (the same hardware tweak installed with the network up)
 # doubles the run (a second full install + boot). CI may skip it and
 # prove only the offline half; a local run proves both.
@@ -77,12 +95,14 @@ while [ $# -gt 0 ]; do
     --user) TEST_USER="$2"; shift 2 ;;
     --password) TEST_PASS="$2"; shift 2 ;;
     --system) SYSTEM="$2"; shift 2 ;;
+    --mode) MODE="$2"; shift 2 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$ISO" ] && [ -n "$TARGET_FLAKE" ] && [ -n "$TARGET_CONFIG" ] && [ -n "$TARGET_HARDWARE" ] && [ -n "$WORKDIR" ] || {
   echo "missing required args" >&2; exit 2
 }
+case "$MODE" in offline|online|live) ;; *) echo "--mode wants offline, online or live, not $MODE" >&2; exit 2 ;; esac
 [ -f "$OVMF_CODE" ] || { echo "OVMF code missing: $OVMF_CODE" >&2; exit 2; }
 [ -f "$OVMF_VARS_SRC" ] || { echo "OVMF vars template missing: $OVMF_VARS_SRC" >&2; exit 2; }
 
@@ -404,7 +424,87 @@ print("EMBEDDING-OK")
 PYEOF
 '
 
-echo "=== phase 2a: non-canonical hardware must refuse BEFORE partitioning (offline) ==="
+# Render the target files from the SHIPPED main.py's embedded templates
+# (extracted exactly as the patch wrote them, then substituted with the
+# writer's own semantics for the default choice: scoot-moonrise in the
+# home folder for the CANONICAL user), into /mnt/home/<user>/nixos-config
+# with /etc/nixos symlinked to it, committed to git and root-owned —
+# byte for byte what the GUI writes (the installer hands the tree to
+# the user only after a successful install). The hardware file is the
+# static one the reference target imports (passed as an argv arg: argv
+# arrives intact, unlike bulk input-data): nixos-generate-config output
+# is non-deterministic (UUIDs, detected modules) and would break the
+# closure match below. Then install with the guest network namespace
+# emptied (unshare -n): any missing closure path fails here instead of
+# phoning home.
+# Canonical identity (must match nix/target-machine.nix exactly or the
+# pre-copied closure below is a different system): user scoot,
+# fullname scoot, host scoot, UTC, en_US.UTF-8, 25.11, moonrise.
+# Render the installer's files into /mnt (writer semantics for the
+# canonical identity), byte for byte what the GUI writes. $1 is the
+# hardware nix text (canonical file, or the tweak for phase 4).
+render_mnt_flake() {
+guest_exec "
+python3 - '$TEST_USER' 'scoot' 'scoot' 'UTC' 'en_US.UTF-8' '25.11' '$SYSTEM' '$1' <<'PYEOF'
+import ast, glob, os, subprocess, sys
+_, username, fullname, hostname, timezone, lang, nixosversion, system, hardware = sys.argv
+cands = glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')
+cands += glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')
+cands += glob.glob('/run/current-system/sw/share/calamares/modules/nixos/main.py')
+if not cands:
+    raise SystemExit('patched main.py not found in live store')
+src = max((open(c).read() for c in cands), key=len)
+def grab(name):
+    for line in src.splitlines():
+        s = line.strip()
+        if s.startswith(name + ' = '):
+            rhs = s.split(' = ', 1)[1]
+            if rhs[:1] == chr(39) or rhs[:1] == chr(34):
+                return ast.literal_eval(rhs)
+    raise SystemExit('template not found in shipped main.py: ' + name)
+flake = grab('scoot_flake_text').replace('@@SYSTEM@@', system)
+config = grab('scoot_config_text')
+lock = grab('scoot_lock_text')
+hm = grab('scoot_hm').replace('@@SCOOT_LOOK@@', 'moonrise')
+users = grab('scoot_users')
+scoot_vars = {'hostname': hostname, 'username': username, 'fullname': fullname, 'timezone': timezone, 'LANG': lang, 'nixosversion': nixosversion}
+for _key, _val in scoot_vars.items():
+    hm = hm.replace('@@' + _key + '@@', _val)
+    users = users.replace('@@' + _key + '@@', _val)
+config = config.replace('@@SCOOT_LOOK@@', 'moonrise')
+config = config.replace('@@SCOOT_NH_FLAKE@@', '/home/' + username + '/nixos-config')
+config = config.replace('  # @@TIMEZONE@@\n', '  time.timeZone = \"' + timezone + '\";\n')
+config = config.replace('  # @@LOCALE@@\n', '  i18n.defaultLocale = \"' + lang + '\";\n')
+config = config.replace('  # @@SCOOT_HM_USER@@', hm.rstrip(chr(10))).replace('  # @@SCOOT_USERS@@', users.rstrip(chr(10)))
+for _key, _val in scoot_vars.items():
+    config = config.replace('@@' + _key + '@@', _val)
+assert '@@' not in config, 'unsubstituted marker left in rendered config'
+assert '@@' not in flake, 'unsubstituted marker left in rendered flake'
+flakedir = '/mnt/home/' + username + '/nixos-config'
+os.makedirs(flakedir, exist_ok=True)
+open(flakedir + '/flake.nix', 'w').write(flake)
+open(flakedir + '/configuration.nix', 'w').write(config)
+open(flakedir + '/flake.lock', 'w').write(lock)
+open(flakedir + '/hardware-configuration.nix', 'w').write(hardware)
+os.makedirs('/mnt/etc', exist_ok=True)
+os.symlink('/home/' + username + '/nixos-config', '/mnt/etc/nixos')
+subprocess.check_output(['git', '-C', flakedir, 'init', '-b', 'main'])
+subprocess.check_output(['git', '-C', flakedir, 'add', '-A'])
+subprocess.check_output(['git', '-C', flakedir, '-c', 'user.name=' + fullname, '-c', 'user.email=' + username + '@localhost', 'commit', '-m', 'Initial scoot system (scoot-iso installer)'])
+print('RENDER-OK')
+PYEOF
+"
+}
+
+if [ "$MODE" = live ]; then
+  # Boot-only mode: the live session came up, the welcome window and the
+  # desktop are right, and the shipped installer patch carries the exact
+  # templates. No disk is touched.
+  stop_vm
+  python3 "$(dirname "$0")/ppm-to-png.py" "$WORKDIR"
+  echo "=== qemu-test (live mode) done; artifacts in $WORKDIR ==="
+  exit 0
+fi
 # The static QEMU hardware the canonical install uses (byte-identical
 # every run), read on the host: argv arrives intact, unlike bulk
 # input-data. The tweak below derives from it the same way.
@@ -420,6 +520,8 @@ TWEAK_HW="$(sed '$d' "$TARGET_HARDWARE")
   # closure differs from the ISO-shipped reference.
   boot.initrd.availableKernelModules = [ \"btrfs\" ];
 }"
+if [ "$MODE" = offline ]; then
+echo "=== phase 2a: non-canonical hardware must refuse BEFORE partitioning (offline) ==="
 # Render both flakes to /tmp (never /mnt: no disk is touched here),
 # with the writer's own semantics for the canonical identity.
 guest_exec "
@@ -533,77 +635,6 @@ PYEOF
 echo "=== phase 2b: unattended install, network cut ==="
 guest_exec 'lsmod | grep -E "^(ext4|vfat)" || echo NO-FS-MODULES-LOADED; modprobe ext4 && echo MODPROBE-EXT4-OK || echo MODPROBE-EXT4-FAIL; modprobe vfat && echo MODPROBE-VFAT-OK || echo MODPROBE-VFAT-FAIL; grep -E "ext4|vfat" /proc/filesystems || echo NO-FS-IN-PROCFILESYS' || true
 guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && partx -u /dev/vda && udevadm settle && lsblk -f /dev/vda && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && blkid /dev/vda1 /dev/vda2 && (mount /dev/vda2 /mnt || (dmesg | tail -25; blkid; exit 1)) && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && echo PARTITION-OK'
-# Render the target files from the SHIPPED main.py's embedded templates
-# (extracted exactly as the patch wrote them, then substituted with the
-# writer's own semantics for the default choice: scoot-moonrise in the
-# home folder for the CANONICAL user), into /mnt/home/<user>/nixos-config
-# with /etc/nixos symlinked to it, committed to git and root-owned —
-# byte for byte what the GUI writes (the installer hands the tree to
-# the user only after a successful install). The hardware file is the
-# static one the reference target imports (passed as an argv arg: argv
-# arrives intact, unlike bulk input-data): nixos-generate-config output
-# is non-deterministic (UUIDs, detected modules) and would break the
-# closure match below. Then install with the guest network namespace
-# emptied (unshare -n): any missing closure path fails here instead of
-# phoning home.
-# Canonical identity (must match nix/target-machine.nix exactly or the
-# pre-copied closure below is a different system): user scoot,
-# fullname scoot, host scoot, UTC, en_US.UTF-8, 25.11, moonrise.
-# Render the installer's files into /mnt (writer semantics for the
-# canonical identity), byte for byte what the GUI writes. $1 is the
-# hardware nix text (canonical file, or the tweak for phase 4).
-render_mnt_flake() {
-guest_exec "
-python3 - '$TEST_USER' 'scoot' 'scoot' 'UTC' 'en_US.UTF-8' '25.11' '$SYSTEM' '$1' <<'PYEOF'
-import ast, glob, os, subprocess, sys
-_, username, fullname, hostname, timezone, lang, nixosversion, system, hardware = sys.argv
-cands = glob.glob('/nix/store/*calamares-nixos-extensions*/lib/calamares/modules/nixos/main.py')
-cands += glob.glob('/nix/store/*calamares-nixos-extensions*/src/modules/nixos/main.py')
-cands += glob.glob('/run/current-system/sw/share/calamares/modules/nixos/main.py')
-if not cands:
-    raise SystemExit('patched main.py not found in live store')
-src = max((open(c).read() for c in cands), key=len)
-def grab(name):
-    for line in src.splitlines():
-        s = line.strip()
-        if s.startswith(name + ' = '):
-            rhs = s.split(' = ', 1)[1]
-            if rhs[:1] == chr(39) or rhs[:1] == chr(34):
-                return ast.literal_eval(rhs)
-    raise SystemExit('template not found in shipped main.py: ' + name)
-flake = grab('scoot_flake_text').replace('@@SYSTEM@@', system)
-config = grab('scoot_config_text')
-lock = grab('scoot_lock_text')
-hm = grab('scoot_hm').replace('@@SCOOT_LOOK@@', 'moonrise')
-users = grab('scoot_users')
-scoot_vars = {'hostname': hostname, 'username': username, 'fullname': fullname, 'timezone': timezone, 'LANG': lang, 'nixosversion': nixosversion}
-for _key, _val in scoot_vars.items():
-    hm = hm.replace('@@' + _key + '@@', _val)
-    users = users.replace('@@' + _key + '@@', _val)
-config = config.replace('@@SCOOT_LOOK@@', 'moonrise')
-config = config.replace('@@SCOOT_NH_FLAKE@@', '/home/' + username + '/nixos-config')
-config = config.replace('  # @@TIMEZONE@@\n', '  time.timeZone = \"' + timezone + '\";\n')
-config = config.replace('  # @@LOCALE@@\n', '  i18n.defaultLocale = \"' + lang + '\";\n')
-config = config.replace('  # @@SCOOT_HM_USER@@', hm.rstrip(chr(10))).replace('  # @@SCOOT_USERS@@', users.rstrip(chr(10)))
-for _key, _val in scoot_vars.items():
-    config = config.replace('@@' + _key + '@@', _val)
-assert '@@' not in config, 'unsubstituted marker left in rendered config'
-assert '@@' not in flake, 'unsubstituted marker left in rendered flake'
-flakedir = '/mnt/home/' + username + '/nixos-config'
-os.makedirs(flakedir, exist_ok=True)
-open(flakedir + '/flake.nix', 'w').write(flake)
-open(flakedir + '/configuration.nix', 'w').write(config)
-open(flakedir + '/flake.lock', 'w').write(lock)
-open(flakedir + '/hardware-configuration.nix', 'w').write(hardware)
-os.makedirs('/mnt/etc', exist_ok=True)
-os.symlink('/home/' + username + '/nixos-config', '/mnt/etc/nixos')
-subprocess.check_output(['git', '-C', flakedir, 'init', '-b', 'main'])
-subprocess.check_output(['git', '-C', flakedir, 'add', '-A'])
-subprocess.check_output(['git', '-C', flakedir, '-c', 'user.name=' + fullname, '-c', 'user.email=' + username + '@localhost', 'commit', '-m', 'Initial scoot system (scoot-iso installer)'])
-print('RENDER-OK')
-PYEOF
-"
-}
 render_mnt_flake "$HW_CONTENT"
 guest_exec "
 set -e
@@ -662,6 +693,58 @@ guest_exec "nixos-enter --root /mnt -c \"echo '$TEST_USER:$TEST_PASS' | chpasswd
 guest_exec 'poweroff || halt -p' || true
 sleep 10
 stop_vm
+
+fi
+
+if [ "$MODE" = online ]; then
+echo "=== phase 2o: unattended install with the network up (the online ISO ships no target closure) ==="
+guest_exec 'modprobe ext4 && modprobe vfat && echo MODPROBE-OK'
+guest_exec 'sgdisk -Z /dev/vda && sgdisk -n 1:0:+512M -t 1:ef00 -c 1:ESP /dev/vda && sgdisk -n 2:0:0 -t 2:8300 -c 2:root /dev/vda && partx -u /dev/vda && udevadm settle && mkfs.fat -F32 /dev/vda1 && mkfs.ext4 -F /dev/vda2 && mount /dev/vda2 /mnt && mkdir -p /mnt/boot && mount /dev/vda1 /mnt/boot && echo PARTITION-OK'
+render_mnt_flake "$HW_CONTENT"
+# The same canonical system the offline mode installs, but nothing of it
+# rides this ISO: the toplevel must be absent from the live store before
+# the install (this is what keeps the online ISO slim, and it fails
+# loudly if the variant split ever leaks the closure back in), the
+# network probe must say online, and every path then comes over the
+# network (live-store substitution only covers what the live system
+# shares with the target). The install is the installer's online branch
+# step for step: no --option substitute false, no pre-copy.
+guest_exec "
+set -e
+echo '--- installer-equivalent probe: the network is up ---'
+python3 - <<'PYEOF' > /tmp/scoot-netmode.txt
+import urllib.request
+mode = \"offline\"
+for u in (\"https://cache.nixos.org/nix-cache-info\", \"https://scoot-sh.cachix.org/nix-cache-info\"):
+    try:
+        urllib.request.urlopen(u, timeout=8).read(32)
+    except Exception:
+        continue
+    mode = \"online\"
+    break
+print(mode)
+PYEOF
+mode=\$(cat /tmp/scoot-netmode.txt)
+echo SCOOT-NETMODE:\$mode
+[ \"\$mode\" = online ] || { echo NETMODE-FAIL: expected online with the network up >&2; exit 1; }
+echo ONLINE-NETMODE-OK
+topo=\$(nix eval --no-write-lock-file --raw '/mnt/home/'$TEST_USER'/nixos-config#nixosConfigurations.scoot.config.system.build.toplevel') && echo \"TOPLEVEL: \$topo\"
+[ -n \"\$topo\" ] || { echo EVAL-FAIL >&2; exit 1; }
+[ ! -e \"\$topo\" ] || { echo SLIM-FAIL: the target toplevel already rides this ISO >&2; exit 1; }
+echo TOPLEVEL-NOT-ON-ISO-OK
+rc=0
+nixos-install --flake /mnt/home/$TEST_USER/nixos-config#scoot --root /mnt --no-root-passwd --no-write-lock-file --no-channel-copy --option build-dir /nix/var/nix/builds > /tmp/install-online.log 2>&1 || rc=\$?
+echo ONLINE-INSTALL-RC:\$rc
+tail -20 /tmp/install-online.log
+[ -e \"/mnt\$topo\" ] || { echo INSTALLED-TOPLEVEL-MISSING >&2; [ \"\$rc\" != 0 ] || rc=1; }
+exit \$rc
+"
+guest_exec 'chown -R 1000:100 /mnt/home/'$TEST_USER' && echo CHOWN-OK'
+guest_exec "nixos-enter --root /mnt -c \"echo '$TEST_USER:$TEST_PASS' | chpasswd\" && echo PASSWD-OK"
+guest_exec 'poweroff || halt -p' || true
+sleep 10
+stop_vm
+fi
 
 echo "=== phase 3: boot installed system, check greeter + session ==="
 start_vm c
@@ -878,6 +961,7 @@ open(sys.argv[2], "wb").write(raw)
 print(f"screenshot saved: {sys.argv[2]} ({len(raw)} bytes in {len(parts)} pieces, complete)")
 EOF
 echo "PNG-OK"
+if [ "$MODE" = offline ]; then
 echo "=== phase 3e: offline rebuilds on the installed system ==="
 # The network namespace is emptied, so success proves the store holds
 # everything a maintainable flake needs; the lock hash before/after
@@ -899,7 +983,10 @@ echo \"lock after:  \$lock_after\"
 grep -o '\"rev\": \"[a-f0-9]*\"' /home/$TEST_USER/nixos-config/flake.lock
 exit \$fail
 "
-if [ "$ONLINE_TWEAK" = 1 ]; then
+fi
+if [ "$MODE" != offline ]; then
+echo "(phase 4, the hardware-tweak install, tests the offline ISO: skipped in $MODE mode)"
+elif [ "$ONLINE_TWEAK" = 1 ]; then
 echo "=== phase 4: the same tweak installs WITH the network up ==="
 # The installed disk is bootable now, but phase 4 must boot the ISO,
 # not the disk. The disk's proofs are all saved on the host, and
