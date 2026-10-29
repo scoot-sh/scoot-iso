@@ -2,7 +2,7 @@
 # Build the scoot-iso ISO with one Docker command (no nix on the host).
 #
 # Copy-paste:
-#   scripts/build-iso-docker.sh             # the online ISO (the release)
+#   scripts/build-iso-docker.sh             # the online ISO
 #   scripts/build-iso-docker.sh --offline   # the offline ISO (see below)
 #
 # The .iso lands in ./scoot-iso-out/ owned by you. x86_64 and aarch64
@@ -32,8 +32,7 @@
 #   --offline   build the offline ISO: the online one plus the reference
 #               target system and its flake inputs, so the canonical
 #               system installs with no network (README, "The offline
-#               ISO"). It is larger than a GitHub release asset may be,
-#               which is why it is built locally and never released.
+#               ISO"). It is the larger of the two (sizes are in the README).
 #               Needs about 2 GB more disk than the online ISO and takes
 #               about as long (measured sizes are in the README).
 #   --check     instead of the ISO, run `nix flake check` in the image

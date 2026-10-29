@@ -22,7 +22,6 @@ gets the scoot desktop profile with the ReGreet login screen.
 | Install | Needs the network | The canonical system installs with the network cut; any other install needs the network, like the online ISO |
 | Size, x86_64 | 2,729,345,024 bytes (2.54 GiB) | 3,134,275,584 bytes (2.92 GiB) |
 | Size, aarch64 | 2,729,836,544 bytes (2.54 GiB) | 3,130,519,552 bytes (2.92 GiB) |
-| Where you get it | x86_64: the GitHub release (see [ISO size](#iso-size)). aarch64: build it | Build it yourself; it is never released |
 
 Both carry the same hardware support and features as the stock NixOS
 graphical installer: the full `linux-firmware` package, speech synthesis
@@ -31,11 +30,9 @@ all locales and the stock squashfs compression. Nothing is trimmed from
 either. The offline ISO differs only by the extra store paths described
 under [The offline ISO](#the-offline-iso).
 
-## Get the online ISO
+## Build the online ISO
 
-Releases carry the x86_64 `.iso` and its `SHA256SUMS`: download them from the
-[releases page](https://github.com/scoot-sh/scoot-iso/releases). For aarch64,
-or to build it yourself, with Nix:
+No ISO is distributed yet: you build it. With Nix:
 
 ```sh
 nix build github:scoot-sh/scoot-iso#iso
@@ -65,7 +62,7 @@ syscall filter (`filter-syscalls`), which emulation cannot load. Expect
 it to be much slower than a native build. The script prints elapsed
 time and the output listing; `scripts/build-iso-docker.sh --check` runs
 `nix flake check` in the image instead (fast plumbing validation).
-About 20 GB free and some 30 minutes natively on a warm cache.
+About 20 GB free and some 30 minutes natively on a warm cache (CI's x86_64 build takes about 38 minutes, much of it compiling Calamares).
 
 Apple Silicon Macs need the Asahi installer, not this ISO: bare-metal
 Apple Silicon boots only through Apple's bootloader chain, which a
@@ -90,7 +87,8 @@ and the sources of its flake inputs, so that system installs with the
 network cut. Its file name starts `nixos-scoot-offline-`, so it never
 overwrites an online ISO in the same output directory.
 A build needs about 2 GB more disk than the online ISO (about 1.1 GiB of extra store
-paths, and an ISO about 0.4 GB larger) and takes about as long.
+paths, and an ISO about 0.4 GB larger) and takes about as long. On CI's x86_64 runner
+it took 24 minutes and the runner's disk went from 39 GB to 53 GB used.
 
 What the extra store paths buy:
 
@@ -289,14 +287,9 @@ is redistributed; see scoot's `NOTICE`.
 ## ISO size
 
 The sizes are in the table under [Two ISOs](#two-isos), measured on scoot
-v0.6.10 (x86_64 from CI, aarch64 built on an aarch64 machine).
-
-CI builds the online ISO on every push and fails the `build-iso` job at
-2,800,000,000 bytes, a regression ceiling just above the measured x86_64
-size. A release refuses to attach an ISO of 2 GiB (2,147,483,648 bytes)
-or more, because GitHub rejects release assets over that. The online ISO
-is currently over that limit, so no release carries it yet. The offline
-ISO is built by whoever needs it and never released.
+v0.6.10 (x86_64 from CI, aarch64 built on an aarch64 machine). CI reports
+the online ISO's size in the job summary and does not gate on it. Distribution
+is not available yet.
 
 ## Troubleshooting by symptom
 
@@ -364,7 +357,7 @@ install a machine. `--mode` picks what it proves:
 | Mode | ISO | What runs |
 |---|---|---|
 | `offline` (default, CI job `qemu-test`) | `iso-offline` | Live session checks, the offline pre-flight refusal for non-canonical hardware, the canonical install with the network cut, the login and session checks, offline rebuilds on the installed system, then the same hardware tweak installed with the network up |
-| `online` (CI job `qemu-test-online`) | `iso` (the released bytes) | Live session checks, a check that the reference system is not on the ISO, the canonical install with the network up (everything downloaded), then the login and session checks |
+| `online` (CI job `qemu-test-online`) | `iso` | Live session checks, a check that the reference system is not on the ISO, the canonical install with the network up (everything downloaded), then the login and session checks |
 | `live` | either | Boot to the live session and its checks only; no disk is touched |
 
 The offline install works only because it installs one fixed

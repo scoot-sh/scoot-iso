@@ -32,11 +32,8 @@ jobs:
         run: |
           sudo env PATH="$PATH" python3 tests/render_check.py result-patched-src/src/modules/nixos/main.py iso/target
 
-  # The ONLINE ISO: the default `iso` output and the only one released.
-  # It is size-gated: GitHub rejects release assets over 2 GiB
-  # (2,147,483,648 bytes), and this budget is the regression ceiling for
-  # what the stock-parity image measured (x86_64: 2,729,345,024 bytes on
-  # 7c301db, scoot v0.6.10) plus ~2.6% headroom for the scoot pin bumps.
+  # The ONLINE ISO: the default `iso` output. CI builds it, reports its
+  # size and boot-tests it; nothing is published.
   build-iso:
     needs: check
     runs-on: ubuntu-latest
@@ -45,33 +42,23 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@v18
       - name: build ISO (x86_64-linux, online)
         run: nix build .#packages.x86_64-linux.iso --print-build-logs -o result-iso
-      - name: measure + gate the size
-        id: size
+      - name: report the size
         run: |
           iso=$(echo result-iso/iso/*.iso)
           bytes=$(stat -c%s "$iso")
-          echo "iso=$iso" >> "$GITHUB_OUTPUT"
-          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
           echo "## Online ISO size" >> "$GITHUB_STEP_SUMMARY"
           echo "$iso: $bytes bytes ($(numfmt --to=iec "$bytes"))" | tee -a "$GITHUB_STEP_SUMMARY"
-          limit=2800000000
-          if [ "$bytes" -ge "$limit" ]; then
-            echo "OVER THE ONLINE ISO BUDGET: $bytes bytes >= $limit (README, ISO size)." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "$bytes bytes is under the $limit-byte budget." >> "$GITHUB_STEP_SUMMARY"
       - name: upload ISO artifact
         uses: actions/upload-artifact@v4
         with:
           name: scoot-iso-x86_64-linux
           path: result-iso/iso/*.iso
-          retention-days: 14
+          retention-days: 1
 
   # The OFFLINE ISO: the online one plus the reference target's closure,
-  # built only so qemu-test can drive a real network-cut install. It is
-  # never released (it is far over GitHub's 2 GiB asset cap and users
-  # build it locally with scripts/build-iso-docker.sh --offline), so it
-  # has no size gate and its artifact lives one day, as test input only.
+  # built so qemu-test can drive a real network-cut install. Users build it
+  # locally with scripts/build-iso-docker.sh --offline. Its artifact lives
+  # one day, as test input only.
   build-iso-offline:
     needs: check
     runs-on: ubuntu-latest
@@ -206,7 +193,7 @@ jobs:
           path: ${{ runner.temp }}/scoot-iso-qemu/*.png
           retention-days: 14
 
-  # QEMU test of the ONLINE ISO (the released bytes): boots it to the
+  # QEMU test of the ONLINE ISO: boots it to the
   # live session (screenshots, welcome window, desktop checks), asserts
   # the target closure is NOT on the ISO, installs the canonical system
   # with the network up (every path substituted from cache.nixos.org and
@@ -266,32 +253,3 @@ jobs:
           name: scoot-iso-qemu-online
           path: ${{ runner.temp }}/scoot-iso-qemu-online/*.png
           retention-days: 14
-
-  # Publishes the ONLINE ISO only, the bytes qemu-test-online booted and
-  # installed. The offline ISO is never uploaded to a release.
-  release:
-    needs: [build-iso, qemu-test, qemu-test-online]
-    if: startsWith(github.ref, 'refs/tags/iso-v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: fetch the tested ISO (build-iso's artifact, not a rebuild)
-        uses: actions/download-artifact@v4
-        with:
-          name: scoot-iso-x86_64-linux
-          path: result-iso
-      - name: attach the ISO and its checksum
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          iso=$(find result-iso -name '*.iso' | head -1)
-          bytes=$(stat -c%s "$iso")
-          # GitHub rejects release assets over 2 GiB; fail with the reason
-          # instead of an opaque upload error.
-          if [ "$bytes" -ge 2147483648 ]; then
-            echo "ISO is $bytes bytes, over GitHub's 2 GiB release-asset cap." >&2
-            exit 1
-          fi
-          (cd "$(dirname "$iso")" && sha256sum "$(basename "$iso")") > SHA256SUMS
-          gh release upload "${GITHUB_REF#refs/tags/}" "$iso" SHA256SUMS --clobber

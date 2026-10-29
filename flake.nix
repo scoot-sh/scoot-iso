@@ -117,7 +117,7 @@
       nixosConfigurations =
         let
           # shipTargetClosure picks the variant: false is the online ISO
-          # (the default and the release), true the offline one, which
+          # (the default), true the offline one, which
           # also carries the reference target's closure and its flake
           # input sources (nix/live.nix).
           liveSystem = system: shipTargetClosure:
@@ -183,7 +183,7 @@
           systems;
 
       # One command: `nix build github:scoot-sh/scoot-iso#iso` is the
-      # online ISO, the one released; `#iso-offline` also carries the
+      # online ISO; `#iso-offline` also carries the
       # reference target's closure (see the README). Pick
       # `.iso.x86_64-linux` / `.iso.aarch64-linux` explicitly when
       # evaluating on macOS. Apple Silicon Macs need the Asahi installer,

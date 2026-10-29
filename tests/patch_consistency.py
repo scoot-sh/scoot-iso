@@ -572,12 +572,11 @@ for _marker in ("ONLINE-NETMODE-OK", "TOPLEVEL-NOT-ON-ISO-OK", "SLIM-FAIL", "INS
     check(_marker in qemu, f"qemu-test online mode lost {_marker}")
 check('"$MODE" = online' in qemu and '"$MODE" = live' in qemu and '"$MODE" = offline' in qemu, "qemu-test lost one of its three modes")
 
-# CI topology. The released asset is the ONLINE ISO (build-iso); the
-# offline ISO (build-iso-offline) exists only for the offline install
-# test and is never published. Each variant's build command appears
-# exactly once, the release job touches only the online artifact, and
-# only tested bytes ship: the online ISO's own boot+install test and
-# the offline install test both gate the release.
+# CI topology. Nothing is published: there is no release job and no
+# size gate. build-iso builds the online ISO, build-iso-offline the
+# offline one (each command exactly once), and each boot-tests its own
+# bytes: qemu-test installs the offline ISO with the network cut,
+# qemu-test-online installs the online ISO with the network up.
 def _job(name):
     m = re.search(r"^  " + re.escape(name) + r":\n(.*?)(?=^  [a-z][a-z0-9-]*:\n|\Z)", ci, re.M | re.S)
     return m.group(1) if m else ""
@@ -587,12 +586,9 @@ check(len(re.findall(r"nix build \.#packages\.x86_64-linux\.iso-offline(?![-\w])
 check("nix build .#packages.x86_64-linux.iso-offline" in _job("build-iso-offline"), "build-iso-offline must build the offline ISO")
 check("needs: [build-iso-offline, kvm-probe]" in _job("qemu-test"), "qemu-test (the offline install) must need [build-iso-offline, kvm-probe]")
 check("--mode online" in _job("qemu-test-online") and "needs: [build-iso, kvm-probe]" in _job("qemu-test-online"), "qemu-test-online must run the online mode on build-iso's artifact")
-_release = _job("release")
-check("needs: [build-iso, qemu-test, qemu-test-online]" in _release, "release must need [build-iso, qemu-test, qemu-test-online] (only tested bytes ship)")
-check("scoot-iso-x86_64-linux" in _release and "offline" not in _release, "release must fetch the online artifact only and never name the offline ISO")
-check("2147483648" in _release, "release must refuse an ISO over GitHub's 2 GiB asset cap")
-check("SHA256SUMS" in _release, "release must attach the checksum")
-check("retention-days: 1" in _job("build-iso-offline"), "the offline ISO artifact (test input only) must have 1-day retention")
+check(not re.search(r"^  release:", ci, re.M), "ci.yml must not have a release job (no ISO is distributed)")
+check("gh release" not in ci and "2147483648" not in ci and "2800000000" not in ci, "ci.yml must not publish or size-gate an ISO")
+check("retention-days: 1\n" in _job("build-iso-offline") and "retention-days: 1\n" in _job("build-iso"), "ISO artifacts (test input only) must have 1-day retention")
 
 if failures:
     print("patch-consistency FAILED:")
