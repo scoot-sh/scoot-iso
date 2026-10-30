@@ -33,10 +33,10 @@ ci = open(ci_path).read()
 
 NIXPKGS_REV = "02c087f3fe673c9e317f206a627cb6b910336dbe"
 # The scoot input rides the release tag (flake.nix names the tag); the
-# lock pins the tag's commit. nixpkgs needs no re-sync: v0.6.15's own
+# lock pins the tag's commit. nixpkgs needs no re-sync: v0.6.16's own
 # flake.lock names this same nixpkgs rev.
-SCOOT_REF = "v0.6.15"
-SCOOT_REV = "bf9bdb9aa85a43abd9b3c99c874a124069174cd1"
+SCOOT_REF = "v0.6.16"
+SCOOT_REV = "354981a4c4827e2a5472511da50060c4b456a5e8"
 HM_REV = "f53f3267f5d009dd8f99443505e609389d7ff267"
 CACHIX_URL = "https://scoot-sh.cachix.org"
 CACHIX_KEY = "scoot-sh.cachix.org-1:QMj7CMw8uqZxrvqqm6SggdxTHz6Q4prt30ydDcXJXCo="
