@@ -12,7 +12,7 @@
     # Mocu as the default cursor theme, nightly retired, installer takes
     # tagged releases only; looks as a catalog with the declared default
     # at programs.scoot.look, the greeter following it at build time).
-    scoot.url = "github:scoot-sh/scoot/v0.6.28";
+    scoot.url = "github:scoot-sh/scoot/v0.6.29";
     # Pinned to home-manager master at f53f3267 (2026-10-05), for the
     # installed user's desktop-profile half.
     home-manager.url = "github:nix-community/home-manager/f53f3267f5d009dd8f99443505e609389d7ff267";
