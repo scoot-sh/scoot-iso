@@ -358,8 +358,30 @@ echo "--- the live bar face is the Nerd file (no tofu) ---"
 barfont=$(grep "^font = " /etc/scootbar/bar.toml | cut -d\" -f2)
 test -n "$barfont" && test -f "$barfont" && echo LIVE-BAR-FONT-OK || { echo "LIVE-BAR-FONT-FAIL: [$barfont]"; fail=1; }
 echo "--- exactly one live bar daemon ---"
-bars=$(pgrep -c -u nixos -x scootbar || true)
-[ "$bars" = 1 ] && echo LIVE-BAR-PROC-OK || { echo "LIVE-BAR-PROC-FAIL: $bars scootbar daemons (want exactly 1)"; fail=1; }
+# The unit is a user service (restarted every 2 s on failure), so one
+# early poll can land between a crash and its restart, or before the
+# slow guest started it. Poll up to 45 s for exactly one daemon, then
+# require the unit never restarted: a crash-looping bar still fails
+# (NRestarts), with the unit state and journal printed either way.
+bardiag() {
+  echo "--- scootbar unit (user scope) ---"
+  su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=/run/user/$(id -u nixos) systemctl show scootbar -p ActiveState,SubState,NRestarts,ExecMainStatus,ExecMainStartTimestamp --user" || true
+  echo "--- scootbar journal (last 60) ---"
+  journalctl _UID=$(id -u nixos) _SYSTEMD_USER_UNIT=scootbar.service -n 60 --no-pager || true
+  echo "--- scootbar processes ---"; pgrep -a -u nixos scootbar || echo "none"
+  echo "--- compositor ---"; ps -o pid,etime,stat,args -u nixos | grep "[s]coot" || echo "none"
+}
+bars=0
+for _ in $(seq 1 45); do
+  bars=$(pgrep -c -u nixos -x scootbar || true)
+  [ "$bars" = 1 ] && break
+  sleep 1
+done
+nrestarts=$(su -s /bin/sh nixos -c "XDG_RUNTIME_DIR=/run/user/$(id -u nixos) systemctl show scootbar -p NRestarts --value --user" || true)
+bardiag
+if [ "$bars" != 1 ]; then echo "LIVE-BAR-PROC-FAIL: $bars scootbar daemons after 45s (want exactly 1)"; fail=1
+elif [ "${nrestarts:-x}" != 0 ]; then echo "LIVE-BAR-PROC-FAIL: scootbar restarted (NRestarts=${nrestarts:-unreadable}, want 0)"; fail=1
+else echo LIVE-BAR-PROC-OK; fi
 echo "--- launcher and terminal installed ---"
 # scootlaunch rides the system PATH via the desktop profile (the default
 # daemon since scoot v0.6.0); the themed scoot-launcher wrapper lives
