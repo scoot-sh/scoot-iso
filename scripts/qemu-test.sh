@@ -377,6 +377,8 @@ bardiag() {
   journalctl -b --no-pager -u "user@$(id -u nixos).service" -n 40 || true
   echo "--- scoot-session and scoot lines (system journal) ---"
   journalctl -b --no-pager -t scoot-session -t scoot -n 40 || true
+  echo "--- greetd, logind and the live seed (system journal) ---"
+  journalctl -b --no-pager -o short-precise -u greetd.service -u systemd-logind.service -u scoot-live-seed.service -n 80 || true
   echo "--- kernel: OOM, kills, segfaults ---"
   dmesg 2>/dev/null | grep -iE "oom|out of memory|killed process|segfault|traps" | tail -10 || true
   echo "--- memory ---"; free -m || true
