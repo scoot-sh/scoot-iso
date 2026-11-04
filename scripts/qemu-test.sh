@@ -370,6 +370,17 @@ bardiag() {
   journalctl _UID=$(id -u nixos) _SYSTEMD_USER_UNIT=scootbar.service -n 60 --no-pager || true
   echo "--- scootbar processes ---"; pgrep -a -u nixos scootbar || echo "none"
   echo "--- compositor ---"; ps -o pid,etime,stat,args -u nixos | grep "[s]coot" || echo "none"
+  # The whole nixos session has vanished in failing runs: say why.
+  echo "--- guest uptime and sessions ---"; uptime || true; loginctl list-sessions --no-legend || true
+  echo "--- user manager (system journal) ---"
+  systemctl status "user@$(id -u nixos).service" --no-pager 2>&1 | head -15 || true
+  journalctl -b --no-pager -u "user@$(id -u nixos).service" -n 40 || true
+  echo "--- scoot-session and scoot lines (system journal) ---"
+  journalctl -b --no-pager -t scoot-session -t scoot -n 40 || true
+  echo "--- kernel: OOM, kills, segfaults ---"
+  dmesg 2>/dev/null | grep -iE "oom|out of memory|killed process|segfault|traps" | tail -10 || true
+  echo "--- memory ---"; free -m || true
+  echo "--- coredumps ---"; coredumpctl list --no-pager 2>&1 | tail -5 || true
 }
 bars=0
 for _ in $(seq 1 45); do
