@@ -1005,7 +1005,31 @@ echo "=== phase 3e: offline rebuilds on the installed system ==="
 # from /tmp (the result link needs a writable cwd) and nh, which
 # refuses root and escalates itself (sudo pre-authed with the test
 # password). nh switches last (it re-activates).
+# nh re-activates and reloads the greeter's user units. Right after the
+# login the greeter's own user manager (user@<greeter-uid>.service) is
+# still winding down: logind holds it for UserStopDelaySec after the last
+# session ends, then queues its stop job, and a start (sockets.target)
+# landing on that queued stop is rejected as destructive. So wait, up to
+# 60 s, for the unit to be inactive/failed (unloaded reads inactive) with
+# no job queued; list-jobs shows queued and running jobs alike. This is a
+# precondition wait, not a retry: the activation still runs exactly once
+# and a real activation failure still fails the phase.
 guest_exec "
+guid=\$(id -u greeter) || { echo 'GREETER-MANAGER-FAIL: no greeter user to wait on'; exit 1; }
+gunit=user@\$guid.service
+settled=0
+for _ in \$(seq 1 60); do
+  gstate=\$(systemctl show -p ActiveState --value \$gunit)
+  gjobs=\$(systemctl list-jobs --no-legend | grep -F \$gunit || true)
+  case \$gstate in inactive|failed) [ -z \"\$gjobs\" ] && { settled=1; break; } ;; esac
+  sleep 1
+done
+if [ \$settled != 1 ]; then
+  echo \"GREETER-MANAGER-FAIL: \$gunit still ActiveState=\$gstate jobs=[\$gjobs] after 60s; nh os switch would race its shutdown\"
+  systemctl list-jobs --no-pager || true
+  exit 1
+fi
+echo \"greeter user manager settled: \$gunit ActiveState=\$gstate, no pending job\"
 lock_before=\$(sha256sum /home/$TEST_USER/nixos-config/flake.lock)
 ip link show | awk -F': ' '{print \$2}' | grep -v '^lo\$' | while read -r ifc; do ip link set \"\$ifc\" down; done
 fail=0
